@@ -5,11 +5,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from common import nearest10, whole_minutes
+from prepare import select_courses
 from routing import matrix, accuracy_summary, cell_key, centre
 from browser_graph import directions, speed
 
 
 class Contracts(unittest.TestCase):
+    def test_published_projection_coordinates_are_retained_and_missing_stay_missing(self):
+        point={'kind':'property_point','latitude':41.123456789,'longitude':-87.987654321}
+        catalog={'destinations':[{'id':'f1','scope':'facility_estimate','precision':'property_point'}],
+                 'courses':[{'course_id':'c1','name':'Published Name','state':'IL','map_location':point,'destination_id':'f1'},
+                            {'course_id':'c2','state':'IL','destination_id':'f1'},
+                            {'course_id':'c3','state':'IN','map_location':point,'destination_id':'f1'}]}
+        rows=select_courses(catalog)
+        self.assertEqual(len(rows),2)
+        self.assertEqual(rows[0]['name'],'Published Name')
+        self.assertEqual(rows[0]['map_location'],point)
+        self.assertEqual(rows[0]['destination']['latitude'],point['latitude'])
+        self.assertEqual(rows[0]['destination']['scope'],'facility_estimate')
+        self.assertIsNone(rows[1]['destination'])
+        self.assertEqual(rows[1]['status'],'arrival_unavailable')
+
     def test_asymmetric_matrix_is_origin_to_course_and_keeps_null(self):
         class DirectedActor:
             def sources_to_targets(self, req):

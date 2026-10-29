@@ -1,9 +1,7 @@
 """2 km cells and reproducible point-reference comparison over the named graph."""
-import importlib.util
 import json
 import math
 import random
-from pathlib import Path
 
 from common import (WORK, OUT, SEED, GRID_METRES, LIMIT_SECONDS,
                     write_json, whole_minutes, nearest10, gzip_file)
@@ -119,6 +117,25 @@ def representative_points():
             ('effingham-rural-region', 39.1200, -88.5434), ('carbondale', 37.7273, -89.2168)]
 
 
+def sample_origins():
+    from pyproj import Transformer
+    from shapely.ops import transform
+    from shapely.geometry import Point
+    to_xy = Transformer.from_crs(4326, 5070, always_xy=True).transform
+    to_ll = Transformer.from_crs(5070, 4326, always_xy=True).transform
+    illinois = transform(to_xy, polygon_from_poly(WORK / 'illinois.poly'))
+    rng = random.Random(SEED)
+    xmin,ymin,xmax,ymax = illinois.bounds
+    points = []
+    while len(points) < 100:
+        x,y = rng.uniform(xmin,xmax),rng.uniform(ymin,ymax)
+        if illinois.contains(Point(x,y)):
+            lon,lat = to_ll(x,y); points.append((f'random-{len(points):03}',lat,lon))
+    points += representative_points()
+    return {'seed': SEED, 'distribution': '100 uniform-area EPSG:5070 origins within pinned Illinois polygon, plus 12 separate synthetic representative city/rural/border points',
+            'origins': [{'name':name,'latitude':lat,'longitude':lon} for name,lat,lon in points]}
+
+
 def accuracy_summary(rows):
     eligible_pairs = [p for r in rows for p in r['pairs'] if p['reference_status'] == 'within_90']
     one = sum(p.get('absolute_error_minutes', math.inf) <= 1 for p in eligible_pairs)
@@ -140,12 +157,9 @@ def accuracy_summary(rows):
 def route_pilot():
     import valhalla
     from pyproj import Transformer, Geod
-    from shapely.ops import transform
-    from shapely.geometry import Point
     to_xy = Transformer.from_crs(4326, 5070, always_xy=True).transform
     to_ll = Transformer.from_crs(5070, 4326, always_xy=True).transform
     geod = Geod(ellps='WGS84')
-    illinois = transform(to_xy, polygon_from_poly(WORK / 'illinois.poly'))
     actor = valhalla.Actor(str(WORK / 'valhalla.json'))
     courses = json.loads((OUT / 'courses.json').read_text())
     usable = []
@@ -213,14 +227,8 @@ def route_pilot():
         'course_catalog': json.loads((OUT / 'provenance.json').read_text())['catalog'],
         'missing_destination_courses': sum(c['destination'] is None for c in courses),
         'course_snap_failed': sum(c.get('snap',{}).get('status') == 'snap_failed' for c in courses)})
-    rng = random.Random(SEED)
-    xmin,ymin,xmax,ymax = illinois.bounds
-    points = []
-    while len(points) < 100:
-        x,y = rng.uniform(xmin,xmax),rng.uniform(ymin,ymax)
-        if illinois.contains(Point(x,y)):
-            lon,lat = to_ll(x,y); points.append((f'random-{len(points):03}',lat,lon))
-    all_points = points + representative_points()
+    samples = json.loads((OUT / 'sample-origins.json').read_text())
+    all_points = [(r['name'], r['latitude'], r['longitude']) for r in samples['origins']]
     # Look up actual emitted cell entries instead of regenerating them. This also
     # exercises table encoding/decoding and missing-cell semantics.
     wanted = {cell_key(*to_xy(lon,lat)) for _,lat,lon in all_points}
