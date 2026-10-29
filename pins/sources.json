@@ -1,0 +1,49 @@
+{
+  "checked_on": "2026-10-29",
+  "catalog": {
+    "manifest_url": "https://snowball-projects.github.io/fairway/data/catalog-release.json",
+    "manifest_sha256": "229943aaae4bf33343b9eee4530d0ccac5f14e204318e0f73696bd60f846a6da",
+    "revision": 1165,
+    "rebuilt_on": "2026-10-29",
+    "release_key": "7d339d2307c4b82329e19f7c16bbee707d64f09076083d1d61da2b46c73b8583",
+    "url": "https://snowball-projects.github.io/fairway/data/browser-details-8327d1c1ad4301e02accf31866531c5b3aa60f659feb9ec9103a3aac71ea36db.json",
+    "bytes": 14783850,
+    "path": "browser-details-8327d1c1ad4301e02accf31866531c5b3aa60f659feb9ec9103a3aac71ea36db.json",
+    "sha256": "8327d1c1ad4301e02accf31866531c5b3aa60f659feb9ec9103a3aac71ea36db"
+  },
+  "modo": {
+    "repository": "https://github.com/adelevski/modo",
+    "commit": "865beb66c039babcc96d7c1511b29bbf95405acf",
+    "builder_sha256": "c91d95d64deac07dacb5f69be06df2e8dcc0ef42f74c071232026b127fae2f26"
+  },
+  "licenses": {
+    "roads": {
+      "name": "ODbL-1.0",
+      "url": "https://opendatacommons.org/licenses/odbl/1-0/",
+      "attribution": "OpenStreetMap contributors",
+      "copyright_url": "https://www.openstreetmap.org/copyright",
+      "checked_on": "2026-10-29"
+    },
+    "code": {
+      "name": "MIT",
+      "url": "LICENSE"
+    }
+  },
+  "runner": {
+    "specs_url": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners",
+    "limits_url": "https://docs.github.com/en/actions/reference/limits",
+    "billing_url": "https://docs.github.com/en/billing/concepts/product-billing/github-actions",
+    "checked_on": "2026-10-29",
+    "label": "ubuntu-24.04",
+    "cpu": 4,
+    "ram_gib": 16,
+    "disk_gib": 14,
+    "max_job_hours": 6
+  },
+  "boundary": {
+    "url": "https://download.geofabrik.de/north-america/us/illinois.poly",
+    "sha256": "c81147880ec6551ea2272cbaf1c0a3e33c4578dbaf184591eab21899cfabb7a3",
+    "checked_on": "2026-10-29",
+    "qualification": "Geofabrik Illinois boundary, content-pinned; .poly URL can rotate and then the run fails closed"
+  }
+}

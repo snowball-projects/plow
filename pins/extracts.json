@@ -1,0 +1,65 @@
+[
+  {
+    "state": "illinois",
+    "url": "https://download.geofabrik.de/north-america/us/illinois-261028.osm.pbf",
+    "bytes": 362547475,
+    "md5": "6f8cbe39a79ab8cc0e56e462e25a55a6",
+    "last_modified": "Wed, 28 Oct 2026 23:54:22 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/illinois.html"
+  },
+  {
+    "state": "indiana",
+    "url": "https://download.geofabrik.de/north-america/us/indiana-261028.osm.pbf",
+    "bytes": 201232765,
+    "md5": "85dfaf99d05f327640a3d54e39dbaa69",
+    "last_modified": "Wed, 28 Oct 2026 23:55:12 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/indiana.html"
+  },
+  {
+    "state": "iowa",
+    "url": "https://download.geofabrik.de/north-america/us/iowa-261028.osm.pbf",
+    "bytes": 134250944,
+    "md5": "fa828ac10cae054014180567e9e199bf",
+    "last_modified": "Wed, 28 Oct 2026 23:55:37 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/iowa.html"
+  },
+  {
+    "state": "kentucky",
+    "url": "https://download.geofabrik.de/north-america/us/kentucky-261028.osm.pbf",
+    "bytes": 154952732,
+    "md5": "6e6bc6f488eaaf62923b4efcff1e3e28",
+    "last_modified": "Thu, 29 Oct 2026 05:40:35 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/kentucky.html"
+  },
+  {
+    "state": "missouri",
+    "url": "https://download.geofabrik.de/north-america/us/missouri-261028.osm.pbf",
+    "bytes": 200010462,
+    "md5": "57c432f41724769d38c51d6c2d423e0e",
+    "last_modified": "Wed, 28 Oct 2026 23:58:04 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/missouri.html"
+  },
+  {
+    "state": "wisconsin",
+    "url": "https://download.geofabrik.de/north-america/us/wisconsin-261028.osm.pbf",
+    "bytes": 294880077,
+    "md5": "6266be6b04924ce597e2680d9333a913",
+    "last_modified": "Wed, 28 Oct 2026 23:57:00 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/wisconsin.html"
+  },
+  {
+    "state": "michigan",
+    "url": "https://download.geofabrik.de/north-america/us/michigan-261028.osm.pbf",
+    "bytes": 316150199,
+    "md5": "16d17bddadd2ebba81d2f137bc4e1ce5",
+    "last_modified": "Wed, 28 Oct 2026 23:58:50 GMT",
+    "data_date": "2026-10-28",
+    "source_page": "https://download.geofabrik.de/north-america/us/michigan.html"
+  }
+]

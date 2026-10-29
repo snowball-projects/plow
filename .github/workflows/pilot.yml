@@ -47,7 +47,7 @@ jobs:
         run: |
           mkdir -p output
           sudo systemd-run --unit=plow-pilot --wait --pipe --collect \
-            -p MemoryMax=13G -p MemorySwapMax=0 -p CPUQuota=400% \
+            -p MemoryMax=13G -p MemorySwapMax=0 -p CPUQuota=400% -p OOMPolicy=continue \
             --working-directory="$PWD" \
             --setenv=PATH="$PWD/.venv/bin:/usr/bin:/bin" \
             --setenv=ARTIFACT_BUDGET_BYTES="$ARTIFACT_BUDGET_BYTES" \
