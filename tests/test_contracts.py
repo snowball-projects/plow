@@ -28,7 +28,7 @@ class Contracts(unittest.TestCase):
 
     def test_asymmetric_matrix_is_origin_to_course_and_keeps_null(self):
         class DirectedActor:
-            def sources_to_targets(self, req):
+            def matrix(self, req):
                 self.request=req
                 # Fixture's forward travel is 89 seconds, reverse is 901.
                 self.forward=req['sources'][0]['lat']==41 and req['targets'][0]['lat']==42

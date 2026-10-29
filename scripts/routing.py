@@ -78,7 +78,7 @@ def matrix(actor, point, courses):
     """The cell centre is a SOURCE and courses are TARGETS on directed roads."""
     if not courses:
         return {}
-    result = decode(actor.sources_to_targets({**request_base(),
+    result = decode(actor.matrix({**request_base(),
         'sources': [location(point)],
         'targets': [location((c['destination']['latitude'], c['destination']['longitude'])) for c in courses]}))
     row = result['sources_to_targets'][0]
