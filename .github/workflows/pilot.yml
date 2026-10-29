@@ -1,0 +1,77 @@
+name: Illinois pilot
+on:
+  workflow_dispatch:
+    inputs:
+      implementation:
+        description: Full reviewed implementation commit SHA
+        type: string
+        required: true
+      artifact_budget_bytes:
+        description: Verified free shared-storage headroom reserved for one day (0 disables upload)
+        type: string
+        default: '0'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: illinois-pilot
+  cancel-in-progress: false
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.implementation }}
+          persist-credentials: false
+      - name: Verify immutable implementation and public free runner
+        env:
+          IMPLEMENTATION: ${{ inputs.implementation }}
+        run: |
+          test "${#IMPLEMENTATION}" = 40
+          test "$(git rev-parse HEAD)" = "$IMPLEMENTATION"
+          test "$GITHUB_REPOSITORY" = snowball-projects/plow
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          python3 -c 'import os,urllib.request,json; x=json.load(urllib.request.urlopen("https://api.github.com/repos/"+os.environ["GITHUB_REPOSITORY"])); assert x["private"] is False'
+      - name: Install bounded build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool time
+          python3 -m venv .venv
+          .venv/bin/pip install --no-cache-dir --require-hashes -r requirements-valhalla.txt
+          .venv/bin/pip install --no-cache-dir -r requirements.txt
+      - name: Run pilot inside memory limit
+        env:
+          ARTIFACT_BUDGET_BYTES: ${{ inputs.artifact_budget_bytes }}
+        run: |
+          mkdir -p output
+          sudo systemd-run --unit=plow-pilot --wait --pipe --collect \
+            -p MemoryMax=13G -p MemorySwapMax=0 -p CPUQuota=400% \
+            --working-directory="$PWD" \
+            --setenv=PATH="$PWD/.venv/bin:/usr/bin:/bin" \
+            --setenv=ARTIFACT_BUDGET_BYTES="$ARTIFACT_BUDGET_BYTES" \
+            --setenv=GITHUB_SHA="$(git rev-parse HEAD)" \
+            "$PWD/.venv/bin/python" scripts/pilot.py
+      - name: Report outcome
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" output
+          if test -f output/report.md; then cat output/report.md | tee -a "$GITHUB_STEP_SUMMARY"; fi
+          if test -f output/report.json; then cat output/report.json; fi
+          if ! test -f output/report.json; then echo 'Pilot did not produce a report; inspect runner/setup/OOM logs.' | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; fi
+      - name: Validate reserved free artifact budget
+        id: artifact
+        if: always()
+        env:
+          BUDGET: ${{ inputs.artifact_budget_bytes }}
+        run: |
+          python3 scripts/artifact_gate.py "$BUDGET" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && steps.artifact.outputs.upload == 'true'
+        with:
+          name: illinois-pilot-${{ github.run_id }}
+          path: output/
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 9
