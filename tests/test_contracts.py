@@ -70,5 +70,26 @@ class Contracts(unittest.TestCase):
         self.assertEqual(directions({'highway':'service','access':'private','motorcar':'yes'}),['forward','backward'])
         self.assertAlmostEqual(speed({'highway':'primary','maxspeed':'55 mph'},'forward'),88.51392)
 
+class CoverageReporting(unittest.TestCase):
+    def test_failed_snaps_and_route_errors_remain_visible_beside_conditional_accuracy(self):
+        rows=[{'origin_snap':{'status':'snapped'},'table_status':'cell_missing',
+               'pairs':[{'course_id':'a','reference_status':'within_90','table_minutes':None},
+                        {'course_id':'b','reference_status':'route_error','table_minutes':None}],
+               'exact_nearest10':['a'],'table_nearest10':[]},
+              {'origin_snap':{'status':'snap_failed'},'table_status':'snap_failed',
+               'pairs':[{'course_id':'a','reference_status':'origin_snap_failed','table_minutes':None}],
+               'exact_nearest10':[],'table_nearest10':[]}]
+        result=accuracy_summary(rows)
+        self.assertEqual(result['origin_snap_failed'],1)
+        self.assertEqual(result['origin_snap_succeeded'],1)
+        self.assertEqual(result['route_error_pairs'],1)
+        self.assertEqual(result['origin_snap_failed_pairs'],1)
+        self.assertEqual(result['origins_with_exact_within90'],1)
+        self.assertEqual(result['origins_without_exact_within90'],1)
+        self.assertEqual(result['exact_within_90_pairs'],1)
+        self.assertEqual(result['courses_with_exact_within90'],1)
+        self.assertEqual(result['missing_table_for_exact_within90'],1)
+        self.assertEqual(result['within_2_minutes_share'],0)
+
 
 if __name__=='__main__': unittest.main()

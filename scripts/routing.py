@@ -2,6 +2,7 @@
 import json
 import math
 import random
+import time
 
 from common import (WORK, OUT, SEED, GRID_METRES, LIMIT_SECONDS,
                     write_json, whole_minutes, nearest10, gzip_file)
@@ -143,6 +144,17 @@ def accuracy_summary(rows):
     top_eligible = [r for r in rows if len(r['exact_nearest10']) == 10]
     ordered = sum(r['exact_nearest10'] == r['table_nearest10'] for r in top_eligible)
     return {'origins': len(rows), 'exact_within_90_pairs': len(eligible_pairs),
+            'origin_snap_failed': sum(r.get('origin_snap', {}).get('status') == 'snap_failed' for r in rows),
+            'origin_snap_succeeded': sum(r.get('origin_snap', {}).get('status') == 'snapped' for r in rows),
+            'origins_with_exact_within90': sum(any(p['reference_status'] == 'within_90' for p in r['pairs']) for r in rows),
+            'origins_without_exact_within90': sum(not any(p['reference_status'] == 'within_90' for p in r['pairs']) for r in rows),
+            'candidate_origin_course_pairs': sum(len(r['pairs']) for r in rows),
+            'successful_reference_pairs': sum(p['reference_status'] in {'within_90', 'over_90'} for r in rows for p in r['pairs']),
+            'over90_reference_pairs': sum(p['reference_status'] == 'over_90' for r in rows for p in r['pairs']),
+            'origin_snap_failed_pairs': sum(p['reference_status'] == 'origin_snap_failed' for r in rows for p in r['pairs']),
+            'courses_with_exact_within90': len({p['course_id'] for p in eligible_pairs if 'course_id' in p}),
+            'table_snap_failed_origins': sum(r.get('table_status') == 'snap_failed' for r in rows),
+            'table_missing_cell_origins': sum(r.get('table_status') == 'cell_missing' for r in rows),
             'within_1_minute_count': one, 'within_2_minutes_count': two,
             'within_1_minute_share': one / len(eligible_pairs) if eligible_pairs else None,
             'within_2_minutes_share': two / len(eligible_pairs) if eligible_pairs else None,
@@ -169,6 +181,16 @@ def route_pilot():
             if c['snap']['status'] == 'snapped':
                 usable.append(c)
     write_json(OUT / 'courses.json', courses)
+    coverage = {'course_records': len(courses),
+        'with_published_coordinates': sum(c['map_location'] is not None for c in courses),
+        'missing_coordinates': sum(c['map_location'] is None for c in courses),
+        'distinct_published_destination_ids': len({c['destination']['id'] for c in courses if c['destination']}),
+        'snapped_course_records': len(usable),
+        'distinct_snapped_destination_ids': len({c['destination']['id'] for c in usable}),
+        'failed_course_snap_records': sum(c.get('snap', {}).get('status') == 'snap_failed' for c in courses),
+        'access_filter': 'none; all Illinois course records retained'}
+    write_json(OUT / 'course-coverage.json', coverage)
+    print('Course coverage: '+json.dumps(coverage), flush=True)
     if not usable:
         raise RuntimeError('No published Illinois destination can be snapped within 1 km')
     coords = [to_xy(c['destination']['longitude'], c['destination']['latitude']) for c in usable]
@@ -180,7 +202,8 @@ def route_pilot():
                         max(y for x, y in coords) + PROJECTED_MARGIN)
     table_dir = OUT / 'tables'; table_dir.mkdir()
     cache = {}
-    counts = {'cells_considered': 0, 'cell_snap_failed': 0, 'matrix_null_pairs': 0,
+    table_started = time.monotonic()
+    counts = {'candidate_pairs_considered': 0, 'matrix_pairs_requested': 0, 'cells_considered': 0, 'cell_snap_failed': 0, 'matrix_null_pairs': 0,
               'pairs_within90': 0, 'grid_crs': 'EPSG:5070', 'cell_metres': GRID_METRES,
               'candidate_radius_metres': CANDIDATE_METRES, 'rounding': 'floor(seconds/60+0.5), raw <=5400 eligibility',
               'area_partition': '20x20 cells = 40 km squares; cell indices floor(EPSG:5070 coordinate/2000)',
@@ -190,12 +213,14 @@ def route_pilot():
     def cell(point, key):
         candidates = [c for c in usable if geod.inv(point[1], point[0],
             c['destination']['longitude'], c['destination']['latitude'])[2] <= CANDIDATE_METRES]
+        counts['candidate_pairs_considered'] += len(candidates)
         if not candidates:
             return {'status': 'no_candidates', 'minutes': {}}
         status = snap(actor, point)
         if status['status'] != 'snapped':
             counts['cell_snap_failed'] += 1
             return {**status, 'minutes': {}}
+        counts['matrix_pairs_requested'] += len(candidates)
         seconds = {}
         for i in range(0, len(candidates), 128):
             seconds.update(matrix(actor, point, candidates[i:i+128]))
@@ -223,6 +248,7 @@ def route_pilot():
                     print(json.dumps(counts), flush=True)
     finally:
         for h in handles.values(): h.close()
+    counts['table_generation_seconds'] = time.monotonic() - table_started
     write_json(OUT / 'table-manifest.json', {**counts, 'envelope_cells': [ix0, iy0, ix1, iy1],
         'course_catalog': json.loads((OUT / 'provenance.json').read_text())['catalog'],
         'missing_destination_courses': sum(c['destination'] is None for c in courses),
@@ -255,6 +281,7 @@ def route_pilot():
             pairs.append(pair)
         results.append({'name':name,'latitude':lat,'longitude':lon,'cell':key,
             'origin_snap':origin_snap,'table_status':approximate['status'], 'pairs':pairs,
+            'snapped_course_records':len(usable),'geodesically_pruned_course_records':len(usable)-len(pairs),
             'exact_nearest10':nearest10(exact),'table_nearest10':nearest10(approximate['minutes'])})
         write_json(OUT / 'accuracy-origins.json', {'seed':SEED,'distribution':'100 uniform-area EPSG:5070 points inside pinned Illinois polygon, then 12 separate synthetic city/rural/border cases','origins':results})
     sizes={p.name:gzip_file(p) for p in sorted(table_dir.glob('*.jsonl'))}

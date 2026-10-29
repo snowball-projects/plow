@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from common import ROOT, WORK, OUT, write_json
 
@@ -10,8 +11,12 @@ def build_tiles():
     import valhalla
     extracts = json.loads((ROOT / 'pins/extracts.json').read_text())
     merged = WORK / 'region.osm.pbf'
+    merge_started = time.monotonic()
     subprocess.run(['osmium', 'merge', *[str(WORK / (e['state'] + '.osm.pbf')) for e in extracts],
                     '-o', str(merged)], check=True)
+    write_json(OUT / 'regional-input.json', {'merged_pbf_bytes': merged.stat().st_size,
+        'merge_seconds': time.monotonic() - merge_started, 'states': [e['state'] for e in extracts],
+        'scope': 'seven-state deduplicated regional tile input; distinct from Illinois-only course/table scope'})
     # Keep only Illinois for the separate browser graph; release other raw inputs after merge.
     for e in extracts:
         if e['state'] != 'illinois':

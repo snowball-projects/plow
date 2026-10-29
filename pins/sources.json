@@ -45,5 +45,13 @@
     "sha256": "c81147880ec6551ea2272cbaf1c0a3e33c4578dbaf184591eab21899cfabb7a3",
     "checked_on": "2026-10-29",
     "qualification": "Geofabrik Illinois boundary, content-pinned; .poly URL can rotate and then the run fails closed"
+  },
+  "national_input_volume": {
+    "url": "https://download.geofabrik.de/north-america/us-261028.osm.pbf",
+    "bytes": 12235943804,
+    "last_modified": "Wed, 28 Oct 2026 23:56:15 GMT",
+    "checked_on": "2026-10-29",
+    "scope": "Geofabrik United States extract; no national download or build",
+    "qualification": "compressed whole-OSM input volume proxy, not a count of routable road objects"
   }
 }

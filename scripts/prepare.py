@@ -43,6 +43,8 @@ def prepare():
     write_json(OUT / 'catalog-counts.json', {'illinois_courses': len(courses),
                'with_destination': sum(c['destination'] is not None for c in courses),
                'missing_destination': sum(c['destination'] is None for c in courses),
+               'with_published_coordinates': sum(c['map_location'] is not None for c in courses),
+               'distinct_published_destination_ids': len({c['destination']['id'] for c in courses if c['destination']}),
                'nationwide_courses': len(catalog['courses']), 'catalog_download': downloaded})
     print((OUT / 'catalog-counts.json').read_text(), flush=True)
     boundary = pins['boundary']

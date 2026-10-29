@@ -1,7 +1,6 @@
 """Bounded free-runner supervisor. All measured results go to Actions output."""
 import json
 import os
-import resource
 import signal
 import subprocess
 import sys
@@ -11,7 +10,7 @@ from pathlib import Path
 from common import ROOT, WORK, OUT, write_json
 
 GIB = 1024**3
-DISK_LIMIT = 12*GIB
+DISK_RESERVE = 10*GIB
 MEMORY_STOP = int(12.5*GIB)  # cgroup hard limit 13 GiB, no swap
 TIME_LIMIT = 5*3600
 
@@ -23,6 +22,24 @@ class CapacityStop(Exception):
 def disk_bytes():
     # st_blocks measures actual working storage, including sparse build files.
     return sum(p.stat().st_blocks*512 for p in ROOT.rglob('*') if p.is_file())
+
+
+def workspace_space():
+    value = os.statvfs(ROOT)
+    device = os.stat(ROOT).st_dev
+    return {'available_bytes': value.f_bavail * value.f_frsize,
+            'free_bytes': value.f_bfree * value.f_frsize,
+            'total_bytes': value.f_blocks * value.f_frsize,
+            'available_inodes': value.f_favail,
+            'device_id': f'{os.major(device)}:{os.minor(device)}'}
+
+
+def filesystem_evidence():
+    return {'workspace': str(ROOT), 'space': workspace_space(),
+            'df_B1': subprocess.check_output(['df', '-B1', str(ROOT)], text=True),
+            'findmnt': json.loads(subprocess.check_output(
+                ['findmnt', '--json', '--target', str(ROOT),
+                 '--output', 'SOURCE,TARGET,FSTYPE,MAJ:MIN'], text=True))}
 
 
 def cgroup_path():
@@ -43,31 +60,42 @@ def metric_table(report):
     def load(name):
         path=OUT/name
         return json.loads(path.read_text()) if path.exists() else None
-    tile=load('tile-build.json');sizes=load('table-sizes.json');acc=load('accuracy.json');browser=load('browser-sizes.json');counts=load('catalog-counts.json')
+    tile=load('tile-build.json');sizes=load('table-sizes.json');acc=load('accuracy.json')
+    browser=load('browser-sizes.json');counts=load('catalog-counts.json')
+    coverage=load('course-coverage.json');merged=load('regional-input.json');grid=load('table-manifest.json')
+    national=json.loads((ROOT/'pins/sources.json').read_text()).get('national_input_volume')
     missing='unavailable: '+reason
     build=stages.get('build_tiles')
+    hypothetical_time='unsupported: completed seven-state tile baseline unavailable'
+    hypothetical_disk=hypothetical_time;hypothetical_tiles=hypothetical_time
+    if tile and merged and national and build and build['status']=='complete':
+        factor=national['bytes']/merged['merged_pbf_bytes']
+        qualifier=f'input-volume-only hypothesis x{factor:.3f}; compressed OSM includes non-roads, temporary working set is nonlinear'
+        hypothetical_time=f"{build['elapsed_seconds']*factor/3600:.2f} h; "+qualifier
+        hypothetical_disk=f"{build['peak_working_disk_bytes']*factor/GIB:.2f} GiB; "+qualifier
+        hypothetical_tiles=f"{tile['tile_bytes']*factor:.0f} bytes; "+qualifier
+    r=acc['random100'] if acc else None
+    course_text=(f"{coverage['course_records']} records; {coverage['with_published_coordinates']} coordinates; "
+        f"{coverage['missing_coordinates']} missing; {coverage['distinct_published_destination_ids']} distinct destinations; "
+        f"{coverage['snapped_course_records']} snapped records; {coverage['failed_course_snap_records']} failed snaps") if coverage else (
+        f"{counts['illinois_courses']} records; {counts['with_published_coordinates']} coordinates; {counts['missing_destination']} missing; "
+        f"{counts['distinct_published_destination_ids']} distinct destinations; snaps not measured") if counts else missing
     table=[['Metric','Measured Illinois / regional pilot','Nationwide extrapolation'],
-           ['Pinned regional extracts',f"{sum(x['bytes'] for x in json.loads((ROOT/'pins/extracts.json').read_text())):,} bytes (7 states)",'not a national road-volume proxy'],
-           ['Illinois catalog courses / destinations',f"{counts['illinois_courses']} / {counts['with_destination']} ({counts['missing_destination']} missing)" if counts else missing,'4985 published catalog courses; no national build'],
-           ['Tile build elapsed',f"{build['elapsed_seconds']:.1f} s ({build['status']})" if build else missing,'unavailable unless Illinois build completes'],
-           ['Peak aggregate cgroup memory',f"{report.get('peak_cgroup_memory_bytes',0)/GIB:.3f} GiB incl. page cache",'not extrapolated from an incomplete build'],
-           ['Peak observed working disk',f"{report.get('peak_working_disk_bytes',0)/GIB:.3f} GiB (2 s sampling)",'not extrapolated from an incomplete build'],
-           ['Tile files / bytes',f"{tile['tile_files']} / {tile['tile_bytes']}" if tile else missing,'unavailable without completed tile build'],
-           ['Tables raw / gzip',f"{sizes['total_raw_bytes']} / {sizes['total_gzip_bytes']} bytes" if sizes else missing,'unavailable without completed tables'],
-           ['Per-area table files',f"{len(sizes['areas'])} areas; all byte sizes in table-sizes.json" if sizes else missing,'unavailable without completed tables'],
-           ['Accuracy within 1 / 2 min',f"{acc['random100']['within_1_minute_share']} / {acc['random100']['within_2_minutes_share']} ({acc['random100']['exact_within_90_pairs']} pairs)" if acc else missing,'no national accuracy claim'],
-           ['Nearest-10 same order',f"{acc['random100']['nearest10_same_order_count']} / {acc['random100']['nearest10_eligible_origins']} eligible origins" if acc else missing,'no national accuracy claim'],
-           ['Illinois browser full / tiles gzip',f"{browser['full']['gzip_bytes']} / {browser['tiles']['gzip_bytes']} bytes" if browser else missing,'unavailable without completed Illinois graph']]
-    # A simple, explicitly catalog-count-scaled scenario; no claim that national
-    # road density, boundary overhead, parallel memory, or accuracy scales so.
-    if report['status']=='complete' and counts and tile and sizes and browser:
-        factor=counts['nationwide_courses']/counts['illinois_courses']
-        table[3][2]=f"{build['elapsed_seconds']*factor/3600:.2f} h, count-scaled scenario x{factor:.3f}"
-        table[4][2]=f"{report['peak_cgroup_memory_bytes']*factor/GIB:.2f} GiB, single merged-graph linear scenario; not a measured bound"
-        table[5][2]=f"{report['peak_working_disk_bytes']*factor/GIB:.2f} GiB, linear scenario; regional halo duplicated"
-        table[6][2]=f"{tile['tile_bytes']*factor:.0f} bytes, same count-scaled scenario"
-        table[7][2]=f"{sizes['total_raw_bytes']*factor:.0f} / {sizes['total_gzip_bytes']*factor:.0f} bytes, catalog-count scaling"
-        table[11][2]=f"{browser['full']['gzip_bytes']*factor:.0f} / {browser['tiles']['gzip_bytes']*factor:.0f} bytes, weak catalog-count proxy for roads"
+        ['Pinned regional extracts',f"{sum(x['bytes'] for x in json.loads((ROOT/'pins/extracts.json').read_text())):,} bytes, 7 states",'regional road-input scope'],
+        ['Illinois course coverage',course_text,'course records are distinct from regional road volume'],
+        ['Supervised processing, excludes setup/apt/pip',f"{report.get('elapsed_seconds',0):.1f} s",'not total Actions wall time'],
+        ['Regional merge + tile phase',f"{build['elapsed_seconds']:.1f} s ({build['status']})" if build else missing,hypothetical_time],
+        ['Peak aggregate cgroup memory',f"{report.get('peak_cgroup_memory_bytes',0)/GIB:.3f} GiB incl. page cache",'unsupported: RAM is a bounded working set; national peak/build strategy unmeasured'],
+        ['Peak observed working disk',f"{report.get('peak_working_disk_bytes',0)/GIB:.3f} GiB, 2 s sampling",hypothetical_disk],
+        ['Tile files / bytes',f"{tile['tile_files']} / {tile['tile_bytes']}" if tile else missing,hypothetical_tiles],
+        ['Tables raw / gzip',f"{sizes['total_raw_bytes']} / {sizes['total_gzip_bytes']} bytes" if sizes else missing,'unsupported: national course-by-candidate-cell/encoded-pair denominator unmeasured'],
+        ['Per-area raw / gzip ranges',f"{len(sizes['areas'])} areas; raw {min(x['raw_bytes'] for x in sizes['areas'].values())}..{max(x['raw_bytes'] for x in sizes['areas'].values())}; gzip {min(x['gzip_bytes'] for x in sizes['areas'].values())}..{max(x['gzip_bytes'] for x in sizes['areas'].values())} bytes" if sizes and sizes['areas'] else missing,'no national area-size claim'],
+        ['Grid candidate/requested/encoded pairs',f"{grid['candidate_pairs_considered']} / {grid['matrix_pairs_requested']} / {grid['pairs_within90']}; {grid['table_generation_seconds']:.1f} s" if grid else missing,'unsupported: no national pair count; pilot pairs are Illinois destinations against regional cells'],
+        ['Random-origin snap and route coverage',f"{r['origin_snap_succeeded']}/{r['origins']} snapped; {r['origin_snap_failed']} failed; {r['origins_with_exact_within90']} origins with <=90 min routes; {r['route_error_pairs']} route errors; {r['exact_within_90_pairs']} eligible pairs; {r['missing_table_for_exact_within90']} missing table pairs" if r else missing,'conditional accuracy below must be read with these omissions'],
+        ['Accuracy within 1 / 2 min',f"{r['within_1_minute_count']}/{r['exact_within_90_pairs']} / {r['within_2_minutes_count']}/{r['exact_within_90_pairs']} pairs; shares {r['within_1_minute_share']} / {r['within_2_minutes_share']}" if r else missing,'no national accuracy claim'],
+        ['Nearest-10 same order',f"{r['nearest10_same_order_count']}/{r['nearest10_eligible_origins']} eligible origins; {r['origins']-r['nearest10_eligible_origins']} ineligible (<10 exact routes)" if r else missing,'no national accuracy claim'],
+        ['Illinois browser full / tiles gzip',f"{browser['full']['gzip_bytes']} / {browser['tiles']['gzip_bytes']} bytes" if browser else missing,'unsupported: national segment/arc population unmeasured; course count is not a road proxy'],
+        ['Workspace available disk, initial / minimum',f"{report['initial_workspace_space']['available_bytes']/GIB:.3f} / {report['minimum_free_disk_bytes']/GIB:.3f} GiB; 10 GiB reserve",'measured filesystem space, not advertised runner SSD figure']]
     text='| '+' | '.join(table[0])+' |\n|---|---|---|\n'
     text+=''.join('| '+' | '.join(str(v).replace('|','/') for v in row)+' |\n' for row in table[1:])
     return text
@@ -75,7 +103,8 @@ def metric_table(report):
 
 def run_stage(name, report, cg, started):
     log_path=WORK/(name+'.log')
-    stage={'name':name,'status':'running'}
+    stage={'name':name,'status':'running','peak_working_disk_bytes':0,
+           'minimum_free_disk_bytes':workspace_space()['available_bytes']}
     report['stages'].append(stage)
     begin=time.monotonic()
     with log_path.open('w') as log:
@@ -86,18 +115,22 @@ def run_stage(name, report, cg, started):
                 memory=read_number(cg/'memory.current')
                 peak=read_number(cg/'memory.peak')
                 disk=disk_bytes()
-                free=os.statvfs(ROOT).f_bavail*os.statvfs(ROOT).f_frsize
+                space=workspace_space()
+                free=space['available_bytes']
                 report['peak_cgroup_memory_bytes']=max(report['peak_cgroup_memory_bytes'],peak or memory or 0)
                 report['peak_working_disk_bytes']=max(report['peak_working_disk_bytes'],disk)
                 report['minimum_free_disk_bytes']=min(report['minimum_free_disk_bytes'],free)
-                stage.update({'elapsed_seconds':time.monotonic()-begin,'last_memory_bytes':memory,'last_disk_bytes':disk})
+                report['last_workspace_space']=space
+                report['peak_filesystem_used_bytes']=max(report['peak_filesystem_used_bytes'],space['total_bytes']-space['free_bytes'])
+                stage.update({'elapsed_seconds':time.monotonic()-begin,'last_memory_bytes':memory,
+                    'last_disk_bytes':disk,'last_free_disk_bytes':free,
+                    'peak_working_disk_bytes':max(stage['peak_working_disk_bytes'],disk),
+                    'minimum_free_disk_bytes':min(stage['minimum_free_disk_bytes'],free)})
                 write_json(OUT/'report.json',report)
                 with (OUT/'resource-samples.jsonl').open('a') as sample:
-                    sample.write(json.dumps({'stage':name,'elapsed_seconds':time.monotonic()-started,'cgroup_memory_bytes':memory,'working_disk_bytes':disk,'free_disk_bytes':free})+'\n')
-                if disk>=DISK_LIMIT:
-                    raise CapacityStop(f'{name}: working disk reached {disk} bytes; cap {DISK_LIMIT} bytes')
-                if free<2*GIB:
-                    raise CapacityStop(f'{name}: root free disk {free} bytes below 2 GiB reserve')
+                    sample.write(json.dumps({'stage':name,'elapsed_seconds':time.monotonic()-started,'cgroup_memory_bytes':memory,'working_disk_bytes':disk,'free_disk_bytes':free,'available_inodes':space['available_inodes']})+'\n')
+                if free<DISK_RESERVE:
+                    raise CapacityStop(f'{name}: workspace filesystem available disk {free} bytes below {DISK_RESERVE} byte system/packaging reserve')
                 if memory is not None and memory>=MEMORY_STOP:
                     raise CapacityStop(f'{name}: aggregate cgroup memory reached {memory} bytes; stop threshold {MEMORY_STOP}')
                 if time.monotonic()-started>=TIME_LIMIT:
@@ -136,10 +169,19 @@ def main():
         raise SystemExit('Road work runs only through the manual Actions workflow')
     WORK.mkdir(exist_ok=True);OUT.mkdir(exist_ok=True)
     cg=cgroup_path();started=time.monotonic()
+    filesystem=filesystem_evidence()
+    write_json(OUT/'filesystem-initial.json',filesystem)
+    print('Initial workspace filesystem: '+json.dumps(filesystem),flush=True)
     report={'status':'running','implementation_sha':os.environ['GITHUB_SHA'],
         'stages':[],'peak_cgroup_memory_bytes':0,'peak_working_disk_bytes':0,
-        'minimum_free_disk_bytes':os.statvfs(ROOT).f_bavail*os.statvfs(ROOT).f_frsize,
-        'limits':{'cpu':4,'tile_threads':2,'memory_hard_bytes':13*GIB,'working_disk_bytes':DISK_LIMIT,'processing_seconds':TIME_LIMIT},
+        'initial_workspace_space':filesystem['space'],
+        'last_workspace_space':filesystem['space'],
+        'minimum_free_disk_bytes':filesystem['space']['available_bytes'],
+        'peak_filesystem_used_bytes':filesystem['space']['total_bytes']-filesystem['space']['free_bytes'],
+        'filesystem_evidence':filesystem,
+        'prior_attempt':{'url':'https://github.com/snowball-projects/plow/actions/runs/40936855016',
+            'interpretation':'stopped at an overly conservative 12 GiB work-directory cap with 73.434 GiB still available; not evidence the pilot cannot fit the free runner'},
+        'limits':{'cpu':4,'tile_threads':2,'memory_hard_bytes':13*GIB,'workspace_free_disk_reserve_bytes':DISK_RESERVE,'processing_seconds':TIME_LIMIT},
         'measurement':'cgroup v2 memory.peak includes all descendants and page cache; work storage uses allocated st_blocks incl. venv, inputs and intermediates; disk sampled every 2s; GNU time -v per stage also retained',
         'cost':'public standard ubuntu-24.04 only; no cache, release, data commit, paid runner, or laptop processing'}
     code=0
@@ -156,9 +198,13 @@ def main():
     finally:
         report['elapsed_seconds']=time.monotonic()-started
         report['cgroup_events']=(cg/'memory.events').read_text()
+        final_filesystem=filesystem_evidence()
+        write_json(OUT/'filesystem-final.json',final_filesystem)
+        print('Final workspace filesystem: '+json.dumps(final_filesystem),flush=True)
         write_json(OUT/'report.json',report)
         (OUT/'report.md').write_text(f"Pilot status: **{report['status']}**\n\n"+metric_table(report)+'\n\n'+
             'Measurements cover this runner only. Incomplete stages have no extrapolation.\n'
+            'Correction: the first attempt stopped at a conservative 12 GiB working cap while 73.434 GiB remained available; it did not establish free-runner infeasibility.\n'
             'Raw inputs, merged PBFs and Valhalla tiles are intermediates, excluded from output artifacts.\n'
             'Course property-point and missing-arrival qualifications are preserved in courses.json.\n')
         # Mark partial generated payloads so interrupted files can never be
