@@ -11,7 +11,6 @@ from common import ROOT, WORK, OUT, write_json
 
 GIB = 1024**3
 DISK_RESERVE = 10*GIB
-MEMORY_STOP = int(12.5*GIB)  # cgroup hard limit 13 GiB, no swap
 TIME_LIMIT = 5*3600
 
 
@@ -52,6 +51,19 @@ def cgroup_path():
 def read_number(path):
     try: return int(path.read_text().strip())
     except (FileNotFoundError,ValueError): return None
+
+
+def memory_stat(cg):
+    return {key: int(value) for key, value in
+            (line.split() for line in (cg/'memory.stat').read_text().splitlines())
+            if key in {'anon','file','kernel','shmem','inactive_file','active_file'}}
+
+
+def verify_memory_bounds(cg):
+    maximum=read_number(cg/'memory.max');swap=read_number(cg/'memory.swap.max')
+    if maximum != 13*GIB or swap != 0:
+        raise RuntimeError('Pilot requires enforced cgroup memory.max=13 GiB and memory.swap.max=0')
+    return {'memory_max_bytes':maximum,'memory_swap_max_bytes':swap}
 
 
 def metric_table(report):
@@ -114,12 +126,15 @@ def run_stage(name, report, cg, started):
             while True:
                 memory=read_number(cg/'memory.current')
                 peak=read_number(cg/'memory.peak')
+                composition=memory_stat(cg)
                 disk=disk_bytes()
                 space=workspace_space()
                 free=space['available_bytes']
                 report['peak_cgroup_memory_bytes']=max(report['peak_cgroup_memory_bytes'],peak or memory or 0)
                 report['peak_working_disk_bytes']=max(report['peak_working_disk_bytes'],disk)
                 report['minimum_free_disk_bytes']=min(report['minimum_free_disk_bytes'],free)
+                report['last_memory_stat']=composition
+                report['peak_observed_anon_bytes']=max(report['peak_observed_anon_bytes'],composition.get('anon',0))
                 report['last_workspace_space']=space
                 report['peak_filesystem_used_bytes']=max(report['peak_filesystem_used_bytes'],space['total_bytes']-space['free_bytes'])
                 stage.update({'elapsed_seconds':time.monotonic()-begin,'last_memory_bytes':memory,
@@ -128,11 +143,12 @@ def run_stage(name, report, cg, started):
                     'minimum_free_disk_bytes':min(stage['minimum_free_disk_bytes'],free)})
                 write_json(OUT/'report.json',report)
                 with (OUT/'resource-samples.jsonl').open('a') as sample:
-                    sample.write(json.dumps({'stage':name,'elapsed_seconds':time.monotonic()-started,'cgroup_memory_bytes':memory,'working_disk_bytes':disk,'free_disk_bytes':free,'available_inodes':space['available_inodes']})+'\n')
+                    sample.write(json.dumps({'stage':name,'elapsed_seconds':time.monotonic()-started,'cgroup_memory_bytes':memory,'working_disk_bytes':disk,'free_disk_bytes':free,'available_inodes':space['available_inodes'],'memory_stat':composition})+'\n')
                 if free<DISK_RESERVE:
                     raise CapacityStop(f'{name}: workspace filesystem available disk {free} bytes below {DISK_RESERVE} byte system/packaging reserve')
-                if memory is not None and memory>=MEMORY_STOP:
-                    raise CapacityStop(f'{name}: aggregate cgroup memory reached {memory} bytes; stop threshold {MEMORY_STOP}')
+                # memory.current includes reclaimable file cache. Keep the
+                # unchanged kernel memory.max=13 GiB bound; only actual OOM
+                # events establish inability to fit that enforced memory set.
                 if time.monotonic()-started>=TIME_LIMIT:
                     raise CapacityStop(f'{name}: five-hour processing budget exhausted; reserve report/upload time')
                 code=proc.poll()
@@ -169,11 +185,14 @@ def main():
         raise SystemExit('Road work runs only through the manual Actions workflow')
     WORK.mkdir(exist_ok=True);OUT.mkdir(exist_ok=True)
     cg=cgroup_path();started=time.monotonic()
+    enforced_memory=verify_memory_bounds(cg)
     filesystem=filesystem_evidence()
     write_json(OUT/'filesystem-initial.json',filesystem)
     print('Initial workspace filesystem: '+json.dumps(filesystem),flush=True)
     report={'status':'running','implementation_sha':os.environ['GITHUB_SHA'],
-        'stages':[],'peak_cgroup_memory_bytes':0,'peak_working_disk_bytes':0,
+        'stages':[],'peak_cgroup_memory_bytes':0,'peak_observed_anon_bytes':0,'peak_working_disk_bytes':0,
+        'enforced_memory':enforced_memory,
+        'initial_memory_stat':memory_stat(cg),
         'initial_workspace_space':filesystem['space'],
         'last_workspace_space':filesystem['space'],
         'minimum_free_disk_bytes':filesystem['space']['available_bytes'],
