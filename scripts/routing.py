@@ -97,7 +97,7 @@ def build_table():
     if SNAPPING=='drivable':
         from hybrid import Graph
         graph=Graph.load(OUT/'browser/full');graph_snaps=graph.snap([centre(k,SPACING) for k in keys],True)
-    table={};points=[];snap_distances=[]
+    table={};points=[];snap_distances=[];engine_distances=[]
     for index,key in enumerate(keys):
         point=to_ll(*centre(key,SPACING))
         if graph_snaps is not None:
@@ -111,11 +111,13 @@ def build_table():
         if match['status']=='snapped':
             points.append({'key':key,'point':point,'hint':match['hint']})
             snap_distances.append(offset)
+            engine_distances.append(match['distance_metres'])
         if (index+1)%10000==0:print(f'Cell snaps {STATE} {SPACING} {SNAPPING}: {index+1}/{len(keys)}',flush=True)
     counts={'cells':len(table),'cell_snap_failed':len(table)-len(points),'matrix_calls':0,'matrix_error_pairs':0,
             'matrix_null_pairs':0,'requested_pairs':0,'pairs_within90':0,'cell_metres':SPACING,'snapping':SNAPPING,
             'crs':crs,'source_chunk':SOURCE_CHUNK,'destination_chunk':DESTINATION_CHUNK,'snap_seconds':time.monotonic()-began,
             'scope':'Centres strictly inside state polygon; zero road buffer; explicit nulls/errors, no fallback_speed'}
+    counts['matching_policy']='Eligible modo segment pre-snap, then stock OSRM resnap; coincident road class not guaranteed' if SNAPPING=='drivable' else 'Original cell point with stock OSRM nearest matching'
     matrix_start=time.monotonic()
     for batch in chunks(points,SOURCE_CHUNK):
         for targets in chunks(usable,DESTINATION_CHUNK):
@@ -148,7 +150,9 @@ def build_table():
     counts.update({'encode_seconds':time.monotonic()-encode_start,'table_seconds':time.monotonic()-began,
         'server_start_seconds':server_seconds,'payload_complete':counts['matrix_error_pairs']==0,
         'cell_snap_metres_mean':sum(snap_distances)/len(snap_distances) if snap_distances else None,
-        'cell_snap_metres_p95':float(np.percentile(snap_distances,95)) if snap_distances else None})
+        'cell_snap_metres_p95':float(np.percentile(snap_distances,95)) if snap_distances else None,
+        'osrm_snap_metres_mean':float(np.mean(engine_distances)) if engine_distances else None,
+        'osrm_snap_metres_p95':float(np.percentile(engine_distances,95)) if engine_distances else None})
     write_json(TABLE_OUT/'table-manifest.json',counts)
     print('Table complete: '+json.dumps(counts),flush=True)
     print('Table sizes: '+(TABLE_OUT/'table-sizes.json').read_text(),flush=True)
@@ -173,7 +177,7 @@ def create_reference():
     write_json(OUT/'reference-summary.json',{**accuracy_summary(results),'reference_seconds':time.monotonic()-began,'server_start_seconds':start_seconds,
         'origin_snap_metres_mean':float(np.mean(offsets)) if offsets else None,
         'origin_snap_metres_p95':float(np.percentile(offsets,95)) if offsets else None,
-        'qualification':'New fixed interior100, not prior unrestricted Valhalla sample; clipped-state OSRM truth only, cross-border optimal routes can be absent even 50 km inside'})
+        'qualification':'New fixed interior100, not prior unrestricted sample; clipped-state OSRM truth only, cross-border optimal routes can be absent even 50 km inside'})
     print('Fixed reference complete: '+(OUT/'reference-summary.json').read_text(),flush=True)
 
 

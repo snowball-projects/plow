@@ -13,7 +13,7 @@ Dispatch **Plow overnight experiments** from main with the exact PR SHA. One fre
 standard Ubuntu job builds Illinois and Texas with **zero added road buffer**.
 Illinois's new fixed 100 origins are uniformly sampled at least 50 km inside its
 pinned polygon in EPSG:5070, seed `20261029`; failed origins are never replaced.
-This sample differs from the earlier unrestricted Valhalla sample. Clipped-state
+This sample differs from the earlier unrestricted sample. Clipped-state
 OSRM references are fixed across variants; even interior routes can lose border
 shortcuts, so this measures approximation on that graph, not full-network truth.
 
@@ -21,7 +21,8 @@ After Illinois's 2 km/10-minute baseline and Texas's 2 km fit/table test, reuse 
 Illinois build for 2 km, 1 km and 500 m grids with 10/15/20-minute local searches.
 Compare one factor at a time. Then test non-service drivable snap candidates at
 the best stock setting; routing arcs, course destinations and exact references
-stay unchanged. Hybrid searches read the exported modo CSR, including directed
+stay unchanged. Table points undergo stock OSRM resnapping; coincident-road class
+exclusion is not guaranteed. Hybrid searches read the exported modo CSR, including directed
 partial edges, and minimize local seconds plus stored cell minutes. Matching
 offsets are reported but excluded from time; static costs differ from OSRM CH.
 

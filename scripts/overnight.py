@@ -60,7 +60,7 @@ def national_estimate(report,spacing):
     return {'status':'planning_proxy','cell_metres':spacing,'anchors':anchors,'runner_hours':{k:v/3600 for k,v in totals.items()},
         'ideal_four_slot_lower_bound_hours':{k:max(totals[k]/4,max(v[k] for v in jobs.values()))/3600 for k in totals},
         'available_concurrency':'Unverified account headroom; this overnight experiment uses one standard job. Four slots are a conditional planning scenario.',
-        'qualification':'Zero-buffer OSRM+table generation only. IL/TX time-per-input-byte, per-cell snap, and per-pair table/encoding rates bracket a planning scenario, not a statistical confidence interval. Area/grid^2 and published-coordinate courses scale pairs. Does not establish RAM fit in other states or at untested Texas resolutions. Browser exports and accuracy evaluation excluded.'}
+        'qualification':'Zero-buffer OSRM+table generation only. Build rates include any failed pre-swap/tool attempts and successful work: observed cold-run/retry workload, not an ideal successful-build time. IL/TX input-byte, cell-snap and table/encoding-pair rates bracket a planning scenario, not a confidence interval. Area/grid^2 and published-coordinate courses scale pairs. No RAM-fit claim for other states or untested Texas resolutions. Browser export, accuracy evaluation and runner provisioning excluded.'}
 
 
 def attach_resources(report):
@@ -100,15 +100,16 @@ def report_markdown(report):
     for row in report['variants']:
         hybrid=row.get('hybrid')
         local=f"{1000*hybrid['local_runtime_mean_seconds']:.3f}/{1000*hybrid['local_runtime_p95_seconds']:.3f}; {hybrid['reached_cells_mean']:.2f}" if hybrid else ''
-        rows.append([f"IL {row['cell_metres']}m / {row['search_seconds']//60}m / {row['snapping']}",
+        label='drivable pre-snap' if row['snapping']=='drivable' else 'stock'
+        rows.append([f"IL {row['cell_metres']}m / {row['search_seconds']//60}m / {label}",
             row['status']+(' / '+row['reason'] if row.get('reason') else ''),
             f"{row.get('table_gzip_bytes','?')} B / {row.get('table_build_seconds','?')}",
             format_accuracy(row.get('plain')),format_accuracy(hybrid),local])
     text='| '+' | '.join(rows[0])+' |\n|'+'---|'*len(rows[0])+'\n'
     text+=''.join('| '+' | '.join(str(v).replace('|','/') for v in row)+' |\n' for row in rows[1:])
     return f"Overnight status: **{report['status']}**\n\n"+text+'\n'+\
-        'New fixed 100 origins, seed 20261029, at least 50 km inside the pinned Illinois polygon in EPSG:5070; not the prior unrestricted Valhalla sample. No failed origins are replaced. The same clipped-state OSRM references and eligible pair/origin sets are reused; not full-network or real-world truth. Missing estimates fail thresholds. Query errors, failed snaps, nulls and missing cells remain in JSON/log coverage. Goals: >=90% within two minutes and >50% nearest-10 orders among eligible origins, complete table payloads only.\n\n'+\
-        'Browser graph retains directed static segment costs and service routing arcs; the drivable variant excludes service/footpath matching candidates. Directed partial edges count; perpendicular matching offsets are reported but excluded from time. Process RSS/swap are sampled sums over the controlled cgroup (shared pages can be counted more than once); cgroup RAM includes file cache. Per-stage GNU time, process/cgroup peaks, disk and actual exits are in report.json/logs.\n\n'+\
+        'New fixed 100 origins, seed 20261029, at least 50 km inside the pinned Illinois polygon in EPSG:5070; not the prior unrestricted sample. No failed origins are replaced. The same clipped-state OSRM references and eligible pair/origin sets are reused; not full-network or real-world truth. Missing estimates fail thresholds. Query errors, failed snaps, nulls and missing cells remain in JSON/log coverage. Goals: >=90% within two minutes and >50% nearest-10 orders among eligible origins, complete table payloads only.\n\n'+\
+        'Browser graph retains directed static segment costs and service routing arcs; drivable pre-snap excludes service/footpath candidates. Table points then undergo stock OSRM resnapping, so coincident-road class exclusion is not guaranteed. Directed partial edges count; perpendicular matching offsets are reported but excluded from time. Process RSS/swap are sampled cgroup PID sums (shared pages can be counted twice); cgroup RAM includes cache. Stage timings, process/cgroup peaks, disk and exits are in report.json/logs.\n\n'+\
         'National estimate: '+json.dumps(report.get('national_estimate',{}))+'\n'
 
 
@@ -166,6 +167,7 @@ class Experiments:
         try:self.swap(True)
         except Exception as error:self.last_reason=str(error);self.last_kind='swap_unavailable';return False
         self.report['states'][state]['mode']=True
+        if phase=='browser_graph':shutil.rmtree(OUT/state/'browser',ignore_errors=True)
         if phase in {'extract','contract'}:
             for path in (ROOT/'work'/state).glob('roads.osrm*'):path.unlink()
         if phase=='contract' and not self.stage(state,'extract',['osrm_build.py','extract']):return False

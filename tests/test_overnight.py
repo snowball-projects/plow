@@ -165,3 +165,22 @@ class Overnight(unittest.TestCase):
             with patch.object(routing,'OUT',out):
                 with self.assertRaisesRegex(RuntimeError,'No snapped course'):routing.courses_for(client)
             client.nearest.assert_not_called()
+
+    def test_browser_oom_retry_removes_only_partial_generated_browser_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            out=Path(temporary);browser=out/'illinois/browser'
+            report={'states':{'illinois':{}},'stages':[]};runner=overnight.Experiments(report,Mock(),0)
+            sentinel=out/'illinois/reference-origins.json';sentinel.parent.mkdir(parents=True);sentinel.write_text('keep')
+            attempts=[]
+            def stage(*args,**kwargs):
+                attempts.append(1)
+                if len(attempts)==1:
+                    (browser/'full').mkdir(parents=True);(browser/'full/partial.bin').write_text('partial')
+                    runner.last_kind='oom';return False
+                self.assertFalse(browser.exists())
+                self.assertEqual(sentinel.read_text(),'keep')
+                browser.mkdir();return True
+            with patch.object(overnight,'OUT',out),patch.object(runner,'stage',side_effect=stage),patch.object(runner,'swap'):
+                self.assertTrue(runner.once('illinois','browser_graph',['browser_graph.py']))
+            self.assertEqual(len(attempts),2)
+            self.assertEqual(sentinel.read_text(),'keep')
