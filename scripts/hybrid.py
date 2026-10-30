@@ -124,17 +124,41 @@ def compose(reached, tables):
     return estimates
 
 
+def diagnostic_pair(reference, pair, reached, tables, snaps, origin_snap):
+    """A recorded minimum and signed residual; never used by the estimator."""
+    cid=pair['course_id']
+    best=min(((seconds+60*tables[cell]['minutes'][cid],cell,seconds,tables[cell]['minutes'][cid])
+              for cell,seconds in reached.items() if cid in tables[cell]['minutes']),default=None)
+    return {'origin':reference['name'],'course_id':cid,'reference_seconds':pair['reference_seconds'],
+        'estimate_seconds':None if best is None else best[0],
+        'signed_error_seconds':None if best is None else best[0]-pair['reference_seconds'],
+        'origin_osrm_snap_metres':reference['origin_snap'].get('distance_metres'),
+        'origin_csr_snap_metres':None if origin_snap is None else origin_snap[2],
+        'chosen_cell':None if best is None else tables[best[1]]['cell'],
+        'local_csr_seconds':None if best is None else best[2],
+        'stored_cell_minutes':None if best is None else best[3],
+        'cell_csr_snap_metres':None if best is None or snaps[best[1]] is None else snaps[best[1]][2]}
+
+
 def main():
     began=time.monotonic();graph=Graph.load(OUT/'browser/full')
     tables=list(table_rows(TABLE_OUT/'tables'))
     snaps=graph.snap([centre(row['cell'],SPACING) for row in tables],SNAPPING=='drivable');targets=Targets(graph,snaps)
     references=json.loads((OUT/'reference-origins.json').read_text())
-    setup_seconds=time.monotonic()-began;results=[];to_xy,_,_=transforms(STATE)
+    weight_unit=json.loads((OUT/'browser/full/manifest.json').read_text())['weight_unit']
+    setup_seconds=time.monotonic()-began;results=[];diagnostics=[];diagnostic_origins=0;to_xy,_,_=transforms(STATE)
     for reference in references['origins']:
         started=time.monotonic()
         snap=graph.snap([to_xy(reference['longitude'],reference['latitude'])],SNAPPING=='drivable')[0]
         reached=graph.reached_cells(snap,targets,SEARCH_SECONDS);estimates=compose(reached,tables)
         elapsed=time.monotonic()-started
+        eligible=[p for p in reference['pairs'] if p['reference_status']=='within_90']
+        if diagnostic_origins<3 and eligible:
+            diagnostic_origins+=1  # First three eligible origins, first two courses; no error-based selection.
+            for pair in eligible[:2]:
+                item={**diagnostic_pair(reference,pair,reached,tables,snaps,snap),
+                    'cell_metres':SPACING,'search_seconds':SEARCH_SECONDS,'snapping':SNAPPING,'graph_weight_unit':weight_unit}
+                diagnostics.append(item);print('Hybrid diagnostic pair: '+json.dumps(item),flush=True)
         pairs=[]
         for original in reference['pairs']:
             pair={**original,'table_minutes':estimates.get(original['course_id'])}
@@ -159,8 +183,9 @@ def main():
         'cell_snap_metres_mean':float(np.mean(distances)) if distances else None,
         'cell_snap_metres_p95':float(np.percentile(distances,95)) if distances else None,
         'graph':'Exported modo-browser-csr-v1 full arrays, directed static segment seconds; no OSRM local/all-course queries',
+        'graph_weight_unit':weight_unit,
         'matching':'Origins/centres match the same candidate policy, within 1000 m in state CRS; directed partial edges included. Drivable matching excludes service candidates, retains routing arcs. Perpendicular offsets excluded from time; exact OSRM references stay unchanged.',
-        'runtime_definition':'Per origin: segment snap, bounded directed search, reached-cell lookup and minimum composition; excludes shared graph/index/cell-snap setup',
+        'runtime_definition':'Per origin: segment snap, bounded directed search, reached-cell lookup and minimum composition; excludes shared graph/index/cell-snap setup and diagnostic logging',
         'error_definition':'abs((local seconds + stored whole cell minutes*60)/60 - same exact OSRM reference/60); missing estimates fail thresholds, no extra rounding or truncation for error',
         'nearest10_definition':'Exact seconds then course ID vs composed seconds then course ID, estimated <=90 min; same exact >=10 within90 eligible origins as plain',
         'qualification':'Browser graph uses static segment speeds without OSRM turn costs/restrictions; snapping can differ. Hybrid is an experiment, not guaranteed to improve accuracy.'}
@@ -168,6 +193,7 @@ def main():
     summary['origin_snap_metres_mean']=float(np.mean(origin_distances)) if origin_distances else None
     summary['origin_snap_metres_p95']=float(np.percentile(origin_distances,95)) if origin_distances else None
     write_json(SCORE_OUT/'hybrid-origins.json',{'seed':references['seed'],'origins':results})
+    write_json(SCORE_OUT/'hybrid-diagnostics.json',diagnostics)
     write_json(SCORE_OUT/'hybrid-accuracy.json',summary)
     print('Hybrid complete: '+json.dumps(summary),flush=True)
 

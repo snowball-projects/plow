@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from hybrid import Graph, Targets, compose
+from hybrid import Graph, Targets, compose, diagnostic_pair
 from routing import accuracy_summary
 
 
@@ -18,6 +18,17 @@ def segment(forward=True, cost=1000):
 
 
 class Hybrid(unittest.TestCase):
+    def test_diagnostic_records_signed_seconds_and_missing_estimates(self):
+        tables=[{'cell':[0,0],'minutes':{'a':2}},{'cell':[1,0],'minutes':{'a':1}}]
+        reference={'name':'random-000','origin_snap':{'distance_metres':4}}
+        pair={'course_id':'a','reference_seconds':120};reached={0:10,1:30};snaps=[(0,.5,2),(1,.5,3)]
+        item=diagnostic_pair(reference,pair,reached,tables,snaps,(0,.5,1))
+        self.assertEqual(item['estimate_seconds'],compose(reached,tables)['a'])
+        self.assertEqual((item['chosen_cell'],item['local_csr_seconds'],item['stored_cell_minutes']),([1,0],30,1))
+        self.assertEqual(item['signed_error_seconds'],-30)
+        missing=diagnostic_pair(reference,{'course_id':'b','reference_seconds':120},reached,tables,snaps,(0,.5,1))
+        self.assertIsNone(missing['estimate_seconds']);self.assertIsNone(missing['signed_error_seconds'])
+
     def test_search_traverses_directed_csr_between_partial_segments(self):
         graph=Graph(np.array([0,1,2,2]),np.array([1,2]),np.array([100,100]),
                     np.array([[0,0],[1000,0],[2000,0]]))

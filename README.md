@@ -21,8 +21,8 @@ shortcuts, so this measures approximation on that graph, not full-network truth.
 
 After Illinois's 2 km/10-minute baseline and Texas's 2 km fit/table test, reuse the
 Illinois build for 2 km, 1 km and 500 m grids with 10/15/20-minute local searches.
-Compare one factor at a time. Then test non-service drivable snap candidates at
-the best stock setting; routing arcs, course destinations and exact references
+Compare one factor at a time. Test non-service drivable snap candidates at 1 km
+and 500 m; routing arcs, course destinations and exact references
 stay unchanged. Table points undergo stock OSRM resnapping; coincident-road class
 exclusion is not guaranteed. Hybrid searches read the exported modo CSR, including directed
 partial edges, and minimize local seconds plus stored cell minutes. Matching

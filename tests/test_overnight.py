@@ -205,7 +205,7 @@ class Overnight(unittest.TestCase):
             texas=next(i for i,c in enumerate(calls) if c[:2]==('texas','prepare'))
             finer=next(i for i,c in enumerate(calls) if c[:3]==('illinois','table',1000))
             self.assertLess(first_hybrid,texas);self.assertLess(texas,finer)
-            self.assertEqual(len(report['variants']),10)
+            self.assertEqual(len(report['variants']),11)
             self.assertTrue(all(row['status']=='complete' for row in report['variants']))
 
     def test_failed_download_is_not_reused_as_shared_input(self):

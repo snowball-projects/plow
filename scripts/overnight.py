@@ -257,8 +257,7 @@ class Experiments:
         for spacing in [1000,500]:self.evaluate(spacing,600,new_table=True)
         for spacing in [2000,1000,500]:
             for search in [900,1200]:self.evaluate(spacing,search)
-        choice=recommended(self.report['variants'])
-        self.evaluate(choice['cell_metres'] if choice else 2000,choice['search_seconds'] if choice else 600,'drivable',new_table=True)
+        for spacing in [1000,500]:self.evaluate(spacing,600,'drivable',new_table=True)
         chosen=recommended(self.report['variants'])
         self.report['recommended']=None if chosen is None else {
             'method':recommended_method(chosen),
