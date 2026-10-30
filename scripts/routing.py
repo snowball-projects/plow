@@ -66,7 +66,7 @@ def route_pilot():
     from shapely.geometry import shape
     from shapely.ops import transform
     to_xy,to_ll,crs=transforms(STATE)
-    polygon=transform(to_xy,shape(json.loads((WORK/'state.geojson').read_text())))
+    polygon=transform(to_xy,shape(json.loads((WORK/'state.geojson').read_text())['geometry']))
     client,start_seconds=start_server();began=time.monotonic()
     courses=json.loads((OUT/'courses.json').read_text());usable=[]
     for course in courses:

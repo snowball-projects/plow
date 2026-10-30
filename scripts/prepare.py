@@ -31,7 +31,7 @@ def prepare():
     import os
     from shapely.geometry import shape, mapping
     from shapely.ops import transform, unary_union
-    from geometry import transforms, origins
+    from geometry import transforms, origins, geojson_feature
     state=os.environ.get('PLOW_STATE','illinois')
     pins=json.loads((ROOT/'pins/sources.json').read_text())
     records=json.loads((ROOT/'pins/extracts.json').read_text())
@@ -44,9 +44,8 @@ def prepare():
     polygon=transform(to_xy,shape(target['geometry']));buffer=polygon.buffer(300_000)
     selected=[r for r in records if r['role']=='region' and transform(to_xy,shape(regions[r['state']]['geometry'])).intersects(buffer)]
     union=unary_union([transform(to_xy,shape(regions[r['state']]['geometry'])) for r in selected])
-    write_json(WORK/'state.geojson',target['geometry'])
-    write_json(WORK/'buffer.geojson',{'type':'FeatureCollection','features':[
-        {'type':'Feature','properties':{},'geometry':mapping(transform(to_ll,buffer))}]})
+    write_json(WORK/'state.geojson',geojson_feature(target['geometry']))
+    write_json(WORK/'buffer.geojson',geojson_feature(mapping(transform(to_ll,buffer))))
     write_json(OUT/'sample-origins.json',origins(polygon,to_ll))
     cat=pins['catalog'];download(cat['url'],WORK/'catalog.json',cat['sha256'],expected_bytes=cat['bytes'])
     catalog=json.loads((WORK/'catalog.json').read_text())

@@ -8,6 +8,11 @@ from shapely.ops import transform
 from common import WORK, SEED, GRID_METRES
 
 
+def geojson_feature(geometry):
+    # Ubuntu's packaged osmium requires a Feature rather than bare geometry.
+    return {'type':'Feature','properties':{},'geometry':geometry}
+
+
 def transforms(state='illinois'):
     crs={'alaska':3338,'hawaii':3759}.get(state,5070)
     return (Transformer.from_crs(4326,crs,always_xy=True).transform,
