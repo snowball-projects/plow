@@ -19,21 +19,34 @@ def read(path):
     return json.loads(path.read_text()) if path.exists() else None
 
 
+def accuracy_goal(value):
+    return bool(value.get('exact_within_90_pairs',0)>0 and
+        (value.get('within_2_minutes_share') or 0)>=.9 and
+        (value.get('nearest10_same_order_share') or 0)>.5)
+
+
+def recommended_method(row):
+    methods=[name for name in ['plain','hybrid'] if (row.get(name) or {}).get('exact_within_90_pairs',0)>0]
+    passing=[name for name in methods if accuracy_goal(row[name])]
+    # A plain lookup needs no local search when both methods meet the goals.
+    if passing:return passing[0]
+    return max(methods,key=lambda name:((row[name].get('within_2_minutes_share') or 0),
+        (row[name].get('nearest10_same_order_share') or 0))) if methods else None
+
+
 def goal_met(row):
-    plain=row.get('plain') or {};hybrid=row.get('hybrid') or {}
-    return bool(row.get('payload_complete') and plain.get('matrix_error_pairs',1)==0 and
-        hybrid.get('exact_within_90_pairs',0)>0 and
-        (hybrid.get('within_2_minutes_share') or 0)>=.9 and
-        (hybrid.get('nearest10_same_order_share') or 0)>.5)
+    return bool(row.get('payload_complete') and (row.get('plain') or {}).get('matrix_error_pairs',1)==0 and
+        any(accuracy_goal(row.get(name) or {}) for name in ['plain','hybrid']))
 
 
 def recommended(rows):
-    complete=[r for r in rows if r.get('status')=='complete' and r.get('payload_complete')]
+    complete=[r for r in rows if r.get('status')=='complete' and r.get('payload_complete') and
+        (r.get('plain') or {}).get('matrix_error_pairs',1)==0 and recommended_method(r) is not None]
     passing=[r for r in complete if goal_met(r)]
-    if passing:return min(passing,key=lambda r:(r['table_gzip_bytes'],r['hybrid']['local_runtime_mean_seconds']))
-    complete=[r for r in complete if r['hybrid'].get('exact_within_90_pairs',0)>0]
-    return max(complete,key=lambda r:((r['hybrid'].get('within_2_minutes_share') or 0),
-        (r['hybrid'].get('nearest10_same_order_share') or 0),-r['table_gzip_bytes'])) if complete else None
+    if passing:return min(passing,key=lambda r:(r['table_gzip_bytes'],
+        0 if recommended_method(r)=='plain' else r['hybrid']['local_runtime_mean_seconds'],r.get('search_seconds',600)))
+    return max(complete,key=lambda r:((r[recommended_method(r)].get('within_2_minutes_share') or 0),
+        (r[recommended_method(r)].get('nearest10_same_order_share') or 0),-r['table_gzip_bytes'])) if complete else None
 
 
 def national_estimate(report,spacing):
@@ -248,9 +261,10 @@ class Experiments:
         self.evaluate(choice['cell_metres'] if choice else 2000,choice['search_seconds'] if choice else 600,'drivable',new_table=True)
         chosen=recommended(self.report['variants'])
         self.report['recommended']=None if chosen is None else {
+            'method':recommended_method(chosen),
             'cell_metres':chosen['cell_metres'],'search_seconds':chosen['search_seconds'],'snapping':chosen['snapping'],
             'goal_met':goal_met(chosen),'table_gzip_bytes':chosen['table_gzip_bytes'],
-            'qualification':'Smallest complete payload meeting both goals; otherwise best tested accuracy, target not met. Same benchmark used for selection, not independent validation.'}
+            'qualification':'Smallest complete payload meeting both goals for plain or hybrid; prefer plain when both pass on that payload. Otherwise best tested accuracy, target not met. Plain needs no local search; its row search budget applies only to the companion hybrid test. Same benchmark used for selection, not independent validation.'}
         self.report['national_estimate']=national_estimate(self.report,chosen['cell_metres'] if chosen else 2000)
         attach_resources(self.report)
 

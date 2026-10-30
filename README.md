@@ -32,7 +32,8 @@ Cells are strictly inside the state. Directed chunks retain raw times ≤5,400 s
 before whole-minute rounding. Missing estimates fail accuracy thresholds; nulls,
 failed snaps and query errors remain explicit. Goals: ≥90% within two minutes
 and >50% nearest-10 orders among eligible origins, using complete payloads only.
-The recommendation chooses the smallest tested gzip payload meeting both goals.
+The recommendation considers both methods and chooses the smallest tested gzip
+payload meeting both goals; a plain lookup needs no local search.
 
 Four cores, 13 GiB cgroup RAM leaving OS headroom, initially no swap. On an actual
 OOM, each state gets one retry with 16 GiB disk swap. RAM, process RSS, swap, disk,

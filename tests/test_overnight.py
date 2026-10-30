@@ -124,6 +124,17 @@ class Overnight(unittest.TestCase):
         self.assertIs(overnight.recommended([tiny,row]),row)
         row['plain']['matrix_error_pairs']=1
         self.assertFalse(overnight.goal_met(row))
+        self.assertIsNone(overnight.recommended([row]))
+
+    def test_plain_can_win_when_hybrid_misses_the_goals(self):
+        row={'status':'complete','payload_complete':True,'table_gzip_bytes':100,'search_seconds':600,
+             'plain':{'matrix_error_pairs':0,'exact_within_90_pairs':100,'within_2_minutes_share':.95,'nearest10_same_order_share':.7},
+             'hybrid':{'exact_within_90_pairs':100,'within_2_minutes_share':.2,'nearest10_same_order_share':.8,
+                       'local_runtime_mean_seconds':.1}}
+        larger={**row,'table_gzip_bytes':200}
+        self.assertTrue(overnight.goal_met(row))
+        self.assertEqual(overnight.recommended_method(row),'plain')
+        self.assertIs(overnight.recommended([larger,row]),row)
 
     def test_only_one_oom_swap_fallback_per_state(self):
         report={'states':{'illinois':{},'texas':{}},'stages':[]}
