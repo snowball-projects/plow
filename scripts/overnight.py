@@ -328,7 +328,7 @@ def main():
         write_json(OUT/'completion.json',{'status':report['status'],'implementation_sha':report['implementation_sha']})
         print('Overnight final report: '+json.dumps(report),flush=True)
         print((OUT/'report.md').read_text(),flush=True)
-    return code
+    return code or int(report['status']!='complete')
 
 
 if __name__=='__main__':sys.exit(main())
