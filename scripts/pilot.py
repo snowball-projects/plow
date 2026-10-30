@@ -89,8 +89,19 @@ def verify_memory_bounds(cg,swap_limit=0):
 
 
 def reset_peak(path):
-    try:path.write_text('0');return True
-    except OSError:return False
+    source=None
+    try:
+        source=path.open('w+');source.write('0');source.flush()
+        return source  # Kernel resets apply to reads through this same descriptor.
+    except OSError:
+        if source is not None:source.close()
+        return None
+
+
+def peak_value(source):
+    if source is None:return None
+    try:source.seek(0);return int(source.read().strip())
+    except (OSError,ValueError):return None
 
 
 def stop_containers():
@@ -104,7 +115,7 @@ def run_stage(name,report,cg,started,command=None,context=None):
            'minimum_free_disk_bytes':space['available_bytes'],'peak_cgroup_memory_bytes':0,
            'peak_cgroup_swap_bytes':0,'peak_process_rss_bytes':0,'peak_process_swap_bytes':0}
     reset_ram=reset_peak(cg/'memory.peak');reset_swap=reset_peak(cg/'memory.swap.peak')
-    stage['kernel_peak_reset']={'ram':reset_ram,'swap':reset_swap}
+    stage['kernel_peak_reset']={'ram':reset_ram is not None,'swap':reset_swap is not None}
     report['stages'].append(stage);begin=time.monotonic();last_print=begin-60
     time_path=OUT/(name+'-time.txt')
     env={**os.environ,**{key:str(value) for key,value in context.get('env',{}).items()}}
@@ -114,7 +125,9 @@ def run_stage(name,report,cg,started,command=None,context=None):
     try:
         while True:
             memory=read_number(cg/'memory.current') or 0;swap=read_number(cg/'memory.swap.current') or 0
-            ram_peak=read_number(cg/'memory.peak') or memory;swap_peak=read_number(cg/'memory.swap.peak') or swap
+            ram_peak=max(read_number(cg/'memory.peak') or 0,memory);swap_peak=max(read_number(cg/'memory.swap.peak') or 0,swap)
+            stage_ram=peak_value(reset_ram);stage_swap=peak_value(reset_swap)
+            stage['kernel_peak_reset']={'ram':stage_ram is not None,'swap':stage_swap is not None}
             composition=memory_stat(cg);rss,process_swap=process_memory(cg)
             disk=disk_bytes();space=workspace_space();free=space['available_bytes'];now=time.monotonic()
             if context.get('state'):
@@ -131,8 +144,8 @@ def run_stage(name,report,cg,started,command=None,context=None):
                 'last_disk_bytes':disk,'last_free_disk_bytes':free,
                 'peak_working_disk_bytes':max(stage['peak_working_disk_bytes'],disk),
                 'minimum_free_disk_bytes':min(stage['minimum_free_disk_bytes'],free)})
-            for key,value in [('peak_cgroup_memory_bytes',ram_peak if reset_ram else memory),
-                              ('peak_cgroup_swap_bytes',swap_peak if reset_swap else swap),
+            for key,value in [('peak_cgroup_memory_bytes',max(memory,stage_ram or 0)),
+                              ('peak_cgroup_swap_bytes',max(swap,stage_swap or 0)),
                               ('peak_process_rss_bytes',rss),('peak_process_swap_bytes',process_swap)]:
                 stage[key]=max(stage[key],value)
             report['elapsed_seconds']=now-started;write_json(OUT/'report.json',report)
@@ -155,6 +168,8 @@ def run_stage(name,report,cg,started,command=None,context=None):
             except subprocess.TimeoutExpired:os.killpg(proc.pid,signal.SIGKILL);proc.wait()
         stage['status']='stopped';raise
     finally:
+        for source in [reset_ram,reset_swap]:
+            if source is not None:source.close()
         stage['elapsed_seconds']=time.monotonic()-begin
         print('Stage outcome: '+json.dumps(stage),flush=True)
         if time_path.exists():print(time_path.read_text(),flush=True)

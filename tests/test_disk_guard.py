@@ -1,5 +1,6 @@
 """Exercise both sides of the filesystem-space guard through the supervisor."""
 import json
+import io
 import sys
 import tempfile
 import unittest
@@ -19,12 +20,13 @@ class DiskGuard(unittest.TestCase):
         with patch.object(pilot,'ROOT',root):
             self.assertEqual(pilot.disk_bytes(),3*512)
 
-    def exercise(self, free, allocated, charged_memory=0, process_code=0, existing_oom=0):
+    def exercise(self, free, allocated, charged_memory=0, process_code=0, existing_oom=0, previous_peak=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             work, out, cg = (root / name for name in ['work', 'output', 'cg'])
             for path in [work, out, cg]: path.mkdir()
             for name in ['memory.current', 'memory.peak']: (cg / name).write_text(str(charged_memory))
+            if previous_peak is not None:(cg/'memory.peak').write_text(str(previous_peak))
             (cg / 'memory.stat').write_text(f'anon {pilot.GIB}\nfile {max(0,charged_memory-pilot.GIB)}\n')
             (cg / 'memory.events').write_text(f'oom_kill {existing_oom}\n')
             process = Mock(pid=123)
@@ -45,6 +47,12 @@ class DiskGuard(unittest.TestCase):
     def test_old_oom_event_does_not_reclassify_a_later_tool_error(self):
         with self.assertRaisesRegex(RuntimeError,'exit 2'):
             self.exercise(73*pilot.GIB,pilot.GIB,process_code=2,existing_oom=1)
+
+    def test_stage_peak_uses_held_reset_descriptor_not_prior_global_peak(self):
+        with patch.object(pilot,'reset_peak',side_effect=lambda path:io.StringIO(str(2*pilot.GIB if path.name=='memory.peak' else 0))):
+            report=self.exercise(73*pilot.GIB,pilot.GIB,charged_memory=2*pilot.GIB,previous_peak=13*pilot.GIB)
+        self.assertEqual(report['stages'][0]['peak_cgroup_memory_bytes'],2*pilot.GIB)
+        self.assertEqual(report['peak_cgroup_memory_bytes'],13*pilot.GIB)
 
     def test_working_set_above_old_cap_continues_with_actual_free_space(self):
         report = self.exercise(free=73*pilot.GIB, allocated=20*pilot.GIB)
