@@ -1,36 +1,33 @@
 # plow
 
-Build experiments for fairway course drive-time tables and modo browser road
-files. Code [MIT](LICENSE); OSM-derived output [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/),
+Illinois build pilot for fairway drive-time tables and modo browser road files.
+Code [MIT](LICENSE); OSM-derived output [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/),
 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 
-The car/CH recipe adapts [Dan Snow's OpenTimes](https://github.com/dfsnow/opentimes/tree/e2f91c0b585de3398c3a77e552d64327a0d6bd84)
-(MIT notice retained in LICENSE): complete-way clipping, road/restriction
-filtering, `osrm-extract -p /opt/car.lua`, `osrm-contract`, and chunked directed
-Table API requests. Our network buffer is 300 km; cells and destinations stay
-inside the selected state. No DVC, cloud cache, or external routing service.
+Adapts [Dan Snow's MIT OpenTimes recipe](https://github.com/dfsnow/opentimes/tree/e2f91c0b585de3398c3a77e552d64327a0d6bd84):
+complete-way clipping and road/restriction filtering, OSRM 5.25 stock car profile,
+then CH contraction. Dan Snow's MIT notice is retained in LICENSE. Geofabrik
+inputs are pinned to October 28; fairway's public catalog to October 29, 2026.
+The catalog has 70 Illinois records, 61 coordinates and 54 distinct destinations;
+nine records lack coordinates. Names, coordinates and qualifications stay intact.
 
-Dispatch the manual pilot workflow with the PR's exact implementation SHA. The matrix
-contains **Illinois only**; the same job template selects intersecting extracts
-for each state. It uses a free standard `ubuntu-24.04` runner, four cores,
-a shared 13 GiB cgroup for Python and OSRM containers, no swap, a 10 GiB actual
-free-disk reserve, and a five-hour processing stop. Stages and resource peaks
-are measured; a capacity stop yields an honest partial report. No national run.
+Dispatch the manual pilot with the exact PR implementation SHA. The job template
+contains Illinois only: a 300 km network buffer, 2 km cell centres inside Illinois,
+and Illinois courses as destinations. Directed Table API chunks retain raw times
+≤5,400 seconds before rounding to whole minutes. Matches must be within 1 km;
+nulls, failed snaps and query errors are explicit, with no straight-line fallback.
 
-Pinned October 28 Geofabrik inputs and the public October 29 fairway catalog
-preserve names, coordinates, qualifications and missing destinations. Grid
-centres are 2 km squares inside the state. Cells are sources, courses are
-destinations; raw durations ≤5,400 seconds encode as `floor(seconds/60+0.5)`.
-Snaps require a drivable match within 1 km; null/error pairs stay explicit,
-with no straight-line fallback. Seed `20261029` generates 100 uniform-area
-origins (water included). Accuracy compares emitted centre minutes to real-point
-OSRM times; missing entries fail thresholds. Nearest-10 compares ordered IDs,
-with duration/ID ties, among origins with ten exact courses within 90 minutes.
+Accuracy uses 100 uniform-area random Illinois origins, seed `20261029`, comparing
+emitted centre minutes with real-point OSRM seconds. Missing table entries fail
+1/2-minute thresholds. Nearest-10 requires identical ordered IDs, sorting by time
+then ID, among origins with ten exact courses within 90 minutes.
 
-Outputs stay in Actions: logs/summary and artifacts with one-day retention only
-when a verified free shared-storage budget is supplied (default 0 withholds upload).
-No releases, data commits, app changes, or paid compute. The report separates
-measured values from national planning proxies and does not promise larger
-states fit. Browser files use pinned modo serializers and a separate OSM segment
-profile; their sizes do not claim OSRM-equivalent turn costs. Local contracts:
-`python3 -m unittest discover -s tests -v` (no road build on the laptop).
+Only free standard Ubuntu Actions runners: four cores, shared 13 GiB memory limit,
+no swap, 10 GiB free-disk reserve, five-hour processing stop. Logs/summary report
+stages, resource peaks, table raw/gzip sizes per 40 km area, browser gzip sizes and
+qualified national runner-hours/makespan proxies. Larger states remain unproven.
+Browser output uses pinned modo serializers with a separate segment-speed profile
+that lacks OSRM turn costs. No national execution, DVC, cache service or data commits.
+Artifacts require verified free shared-storage headroom; default budget 0 disables
+uploads, leaving measurements in logs/summary. Contracts:
+`python3 -m unittest discover -s tests -v` (no local road build).
