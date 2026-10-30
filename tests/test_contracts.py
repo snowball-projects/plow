@@ -5,13 +5,32 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from common import nearest10, whole_minutes, retained_minutes
-from prepare import select_courses
+from prepare import select_courses, catalog_counts
 from routing import accuracy_summary
 from geometry import cell_key, centre, cells
 from browser_graph import directions, speed
 
 
 class Contracts(unittest.TestCase):
+    def test_published_coordinate_survives_missing_destination_id(self):
+        point={'kind':'property_point','latitude':29.92328265,'longitude':-95.26841378509229}
+        catalog={'destinations':[],'courses':[{'course_id':'member','facility_id':'houston','state':'TX','map_location':point}]}
+        rows=select_courses(catalog,'TX');target=rows[0]['destination'];counts=catalog_counts(catalog,rows,'TX')
+        self.assertEqual((target['latitude'],target['longitude']),(point['latitude'],point['longitude']))
+        self.assertTrue(target['coordinate_only']);self.assertNotIn('scope',target)
+        self.assertEqual(rows[0]['map_location'],point)
+        self.assertEqual((counts['with_published_coordinates'],counts['missing_coordinates'],counts['coordinates_without_destination_id']),(1,0,1))
+
+    def test_coverage_separates_missing_points_from_unrepresented_facilities(self):
+        point={'latitude':40,'longitude':-89}
+        catalog={'destinations':[{'id':'d'}],'facilities':[{'facility_id':'a','state':'IL','map_location':point},
+            {'facility_id':'b','state':'IL','map_location':point},{'facility_id':'c','state':'IL'}],
+            'courses':[{'course_id':'one','facility_id':'a','state':'IL','map_location':point,'destination_id':'d'},
+                       {'course_id':'two','facility_id':'a','state':'IL','destination_id':'d'}]}
+        counts=catalog_counts(catalog,select_courses(catalog),'IL')
+        self.assertEqual((counts['course_records'],counts['with_published_coordinates'],counts['missing_coordinates']),(2,1,1))
+        self.assertEqual((counts['facilities'],counts['facilities_with_published_coordinates'],counts['coordinate_facilities_without_course_records']),(3,2,1))
+
     def test_published_projection_coordinates_are_retained_and_missing_stay_missing(self):
         point={'kind':'property_point','latitude':41.123456789,'longitude':-87.987654321}
         catalog={'destinations':[{'id':'f1','scope':'facility_estimate','precision':'property_point'}],

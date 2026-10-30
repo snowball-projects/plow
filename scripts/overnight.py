@@ -73,7 +73,7 @@ def national_estimate(report,spacing):
     return {'status':'planning_proxy','cell_metres':spacing,'anchors':anchors,'runner_hours':{k:v/3600 for k,v in totals.items()},
         'ideal_four_slot_lower_bound_hours':{k:max(totals[k]/4,max(v[k] for v in jobs.values()))/3600 for k in totals},
         'available_concurrency':'Unverified account headroom; this overnight experiment uses one standard job. Four slots are a conditional planning scenario.',
-        'qualification':'Zero-buffer OSRM+table generation only. Build rates include any failed pre-swap/tool attempts and successful work: observed cold-run/retry workload, not an ideal successful-build time. IL/TX input-byte, cell-snap and table/encoding-pair rates bracket a planning scenario, not a confidence interval. Area/grid^2 and published-coordinate courses scale pairs. No RAM-fit claim for other states or untested Texas resolutions. Browser export, accuracy evaluation and runner provisioning excluded.'}
+        'qualification':'Zero-buffer OSRM+table generation only. Build rates include any failed pre-swap/tool attempts and successful work: observed cold-run/retry workload, not an ideal successful-build time. IL/TX input-byte, cell-snap and table/encoding-pair rates bracket a planning scenario, not a confidence interval. Area/grid^2 and selected documented course records scale pairs; mapped facilities without course records are omitted. No RAM-fit claim for other states or untested Texas resolutions. Browser export, accuracy evaluation and runner provisioning excluded.'}
 
 
 def attach_resources(report):

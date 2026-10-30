@@ -15,16 +15,35 @@ def select_courses(catalog, state_code='IL'):
         # The published browser projection places coordinates on the course
         # map_location, while destinations retain only ID/scope/precision.
         # Preserve those published coordinates and their qualification verbatim.
-        if target and point:
+        if point:
+            if target is None:
+                target={'id':'course-coordinate:'+c['course_id'],'coordinate_only':True}
             target = {**target, 'latitude': point['latitude'], 'longitude': point['longitude'],
                       'coordinate_source': 'published_course_map_location'}
         else:
             target = None
         courses.append({'course_id': c['course_id'], 'name': c.get('name'),
                         'facility_name': c.get('facility_name'), 'state': c.get('state'),
+                        'facility_id':c.get('facility_id'),'published_destination_id':c.get('destination_id'),
                         'map_location': c.get('map_location'), 'destination': target,
-                        'status': 'target_available' if target else 'arrival_unavailable'})
+                        'status': ('coordinate_only_target' if target.get('coordinate_only') else 'target_available') if target else 'arrival_unavailable'})
     return courses
+
+
+def catalog_counts(catalog,courses,state_code):
+    facilities=[f for f in catalog.get('facilities',[]) if f.get('state')==state_code]
+    located=[f for f in facilities if f.get('map_location')]
+    linked={c.get('facility_id') for c in catalog['courses'] if c.get('state')==state_code}
+    return {'course_records':len(courses),
+        'with_published_coordinates':sum(bool(c['map_location']) for c in courses),
+        'missing_coordinates':sum(not c['map_location'] for c in courses),
+        'selected_routing_records':sum(c['destination'] is not None for c in courses),
+        'coordinates_without_destination_id':sum(bool(c['map_location']) and not c['published_destination_id'] for c in courses),
+        'coordinate_only_targets':sum(bool(c['destination'] and c['destination'].get('coordinate_only')) for c in courses),
+        'distinct_destinations':len({c['destination']['id'] for c in courses if c['destination']}),
+        'facilities':len(facilities),'facilities_with_published_coordinates':len(located),
+        'coordinate_facilities_without_course_records':sum(f['facility_id'] not in linked for f in located),
+        'scope':'Documented course records only; coordinate-bearing facilities without course records are not routing targets. Published map-point qualifications are preserved.'}
 
 
 def prepare():
@@ -54,10 +73,7 @@ def prepare():
         print('Frozen interior origins: '+json.dumps(sample),flush=True)
     catalog=json.loads(input_file(pins['catalog'],'catalog.json').read_text())
     courses=select_courses(catalog,row['code']);write_json(OUT/'courses.json',courses)
-    counts={'state':STATE,'course_records':len(courses),
-        'with_published_coordinates':sum(c['destination'] is not None for c in courses),
-        'missing_coordinates':sum(c['destination'] is None for c in courses),
-        'distinct_destinations':len({c['destination']['id'] for c in courses if c['destination']})}
+    counts={'state':STATE,**catalog_counts(catalog,courses,row['code'])}
     write_json(OUT/'catalog-counts.json',counts);print('Catalog: '+json.dumps(counts),flush=True)
     national=[]
     for record in records:
@@ -70,6 +86,7 @@ def prepare():
         'extracts':[row],'input_bytes':row['bytes'],'area_m2':polygon.area,
         'scope':'Census administrative state polygon only, complete ways; no added road buffer. No-buffer routes are not full-network truth.',
         'state_boundaries':pins['state_boundaries'],
+        'destination_scope':'Documented course records with published map coordinates; not every mapped facility',
         'licenses':pins['licenses'],'catalog':pins['catalog'],'osrm':pins['osrm'],'opentimes':pins['opentimes']}
     write_json(OUT/'sources.json',source);print('Inputs: '+json.dumps(source),flush=True)
     download(row['url'],WORK/'source.osm.pbf',row['md5'],'md5',row['bytes'])
