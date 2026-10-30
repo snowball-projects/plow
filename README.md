@@ -1,37 +1,36 @@
 # plow
 
-OpenStreetMap build experiments for fairway drive-time tables and modo browser
-road files. Code [MIT](LICENSE); road-derived output [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/),
+Build experiments for fairway course drive-time tables and modo browser road
+files. Code [MIT](LICENSE); OSM-derived output [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/),
 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 
-Run **Illinois pilot** manually with the full implementation commit SHA. Main
-has only the dispatch bootstrap; the implementation stays in its draft PR.
-The public standard `ubuntu-24.04` runner is free (4 CPU, 16 GB RAM). The pilot
-measures its workspace filesystem and preserves 10 GiB free for the system and
-packaging. It stops at that reserve, 13 GiB memory, or five hours, retaining
-honest partial measurements. It never builds nationwide or modifies apps.
+The car/CH recipe adapts [Dan Snow's OpenTimes](https://github.com/dfsnow/opentimes/tree/e2f91c0b585de3398c3a77e552d64327a0d6bd84)
+(MIT notice retained in LICENSE): complete-way clipping, road/restriction
+filtering, `osrm-extract -p /opt/car.lua`, `osrm-contract`, and chunked directed
+Table API requests. Our network buffer is 300 km; cells and destinations stay
+inside the selected state. No DVC, cloud cache, or external routing service.
 
-Pinned October 28 Geofabrik extracts cover Illinois, its five land neighbours,
-with Michigan excluded. Roads are clipped to a 200 km EPSG:5070 buffer
-using complete OSM ways; source-union gaps are reported. Tiles use all four cores. The October 29 published fairway catalog retains names and
-coordinates, including property-point qualifications and missing arrivals.
-EPSG:5070 cells are 2 km squares with centres inside Illinois. Per-course
-`timedistancematrix` batches keep cells as sources and the course as the single
-target; the response algorithm is verified. Traffic-free travel is **origin to course**;
-raw durations ≤90 minutes encode as `floor(seconds / 60 + 0.5)`.
-100 uniform-area Illinois origins use seed `20261029`; 12 separate synthetic
-city/rural/border cases supplement them. Each origin makes one one-to-many
-matrix call (112 total); accuracy measures discretization/encoding against the
-same algorithm, whose destination-only/no-thru behavior differs from CostMatrix. Missing centre entries fail accuracy
-thresholds; nearest-10 compares ordered IDs, with ID ties, among exact routes
-≤90 minutes. Snap failures and routing errors remain explicit.
+Run **State OSRM pilot** on the PR branch with its exact implementation SHA. The matrix
+contains **Illinois only**; the same job template selects intersecting extracts
+for each state. It uses a free standard `ubuntu-24.04` runner, four cores,
+a shared 13 GiB cgroup for Python and OSRM containers, no swap, a 10 GiB actual
+free-disk reserve, and a five-hour processing stop. Stages and resource peaks
+are measured; a capacity stop yields an honest partial report. No national run.
 
-Outputs are Actions artifacts only, with one-day retention and a caller-supplied
-**verified free shared-storage budget** (default 0 withholds upload). Inputs,
-merged PBFs and tiles are temporary. No releases or generated-data commits.
-The report includes snap/route coverage beside conditional accuracy. National
-tile scenarios use input volume; estimates without a measured denominator stay
-unsupported. The modo format comes from pinned main;
-its separate static OSM segment profile omits turn restrictions and penalties,
-so browser sizes do not claim Valhalla-equivalent routing. Run local contracts:
-`python3 -m unittest discover -s tests -v` (no road build).
+Pinned October 28 Geofabrik inputs and the public October 29 fairway catalog
+preserve names, coordinates, qualifications and missing destinations. Grid
+centres are 2 km squares inside the state. Cells are sources, courses are
+destinations; raw durations ≤5,400 seconds encode as `floor(seconds/60+0.5)`.
+Snaps require a drivable match within 1 km; null/error pairs stay explicit,
+with no straight-line fallback. Seed `20261029` generates 100 uniform-area
+origins (water included). Accuracy compares emitted centre minutes to real-point
+OSRM times; missing entries fail thresholds. Nearest-10 compares ordered IDs,
+with duration/ID ties, among origins with ten exact courses within 90 minutes.
+
+Outputs stay in Actions: logs/summary and artifacts with one-day retention only
+when a verified free shared-storage budget is supplied (default 0 withholds upload).
+No releases, data commits, app changes, or paid compute. The report separates
+measured values from national planning proxies and does not promise larger
+states fit. Browser files use pinned modo serializers and a separate OSM segment
+profile; their sizes do not claim OSRM-equivalent turn costs. Local contracts:
+`python3 -m unittest discover -s tests -v` (no road build on the laptop).

@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import urllib.request
 from pathlib import Path
 
@@ -12,6 +13,7 @@ OUT = ROOT / 'output'
 SEED = 20261029
 LIMIT_SECONDS = 5400
 GRID_METRES = 2000
+STATE = os.environ.get('PLOW_STATE', 'illinois')
 
 
 def write_json(path, value):
@@ -40,6 +42,10 @@ def whole_minutes(seconds):
     if not math.isfinite(seconds) or seconds < 0:
         raise ValueError('Duration must be finite and nonnegative')
     return math.floor(seconds / 60 + 0.5)
+
+
+def retained_minutes(seconds):
+    return whole_minutes(seconds) if seconds is not None and seconds<=LIMIT_SECONDS else None
 
 
 def nearest10(values):

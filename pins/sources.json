@@ -40,18 +40,21 @@
     "disk_gib": 14,
     "max_job_hours": 6
   },
-  "boundary": {
-    "url": "https://download.geofabrik.de/north-america/us/illinois.poly",
-    "sha256": "c81147880ec6551ea2272cbaf1c0a3e33c4578dbaf184591eab21899cfabb7a3",
-    "checked_on": "2026-10-29",
-    "qualification": "Geofabrik Illinois boundary, content-pinned; .poly URL can rotate and then the run fails closed"
+  "geofabrik_index": {
+    "url": "https://download.geofabrik.de/index-v1.json",
+    "sha256": "9b1d170b09eee255c0e56925788eb367646397c1ba1882f36b4c5c79133691fc",
+    "checked_on": "2026-10-30"
   },
-  "national_input_volume": {
-    "url": "https://download.geofabrik.de/north-america/us-261028.osm.pbf",
-    "bytes": 12235943804,
-    "last_modified": "Wed, 28 Oct 2026 23:56:15 GMT",
-    "checked_on": "2026-10-29",
-    "scope": "Geofabrik United States extract; no national download or build",
-    "qualification": "compressed whole-OSM input volume proxy, not a count of routable road objects"
+  "osrm": {
+    "image": "osrm/osrm-backend@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555",
+    "version": "5.25.0",
+    "profile": "/opt/car.lua",
+    "algorithm": "ch"
+  },
+  "opentimes": {
+    "repository": "https://github.com/dfsnow/opentimes",
+    "commit": "e2f91c0b585de3398c3a77e552d64327a0d6bd84",
+    "license": "MIT; Copyright (c) Dan Snow",
+    "adaptations": "300 km network buffer, in-state grid/course destinations, no DVC/cloud cache/swap"
   }
 }

@@ -11,8 +11,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - run: python3 -m pip install --require-hashes -r requirements-valhalla.txt
-      - run: python3 -m pip install shapely==2.1.1 pyproj==3.7.1
+      - run: python3 -m pip install -r requirements.txt
       - run: python3 -m unittest discover -s tests -v
       - run: python3 -m compileall -q scripts tests
       - run: git diff --check
+      - name: OSRM car CH command smoke check (no road build)
+        run: |
+          IMAGE=$(python3 -c 'import json; print(json.load(open("pins/sources.json"))["osrm"]["image"])')
+          docker run --rm "$IMAGE" osrm-extract --help
+          docker run --rm "$IMAGE" osrm-contract --help

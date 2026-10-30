@@ -68,24 +68,6 @@ class DiskGuard(unittest.TestCase):
         self.assertIn('Filesystem', result['df_B1'])
         self.assertTrue(result['findmnt']['filesystems'])
 
-    def test_national_tile_scenario_uses_input_volume_and_keeps_other_denominators_separate(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);out=root/'output';out.mkdir();(root/'pins').mkdir()
-            fixtures={root/'pins'/'sources.json':{'national_input_volume':{'bytes':10000}},
-                      root/'pins'/'extracts.json':[{'bytes':2000}],
-                      out/'regional-input.json':{'clipped_pbf_bytes':1000,'merged_pbf_bytes':2000,'source_union_buffer_area_share':0.9,'merge_seconds':1,'clip_seconds':2},
-                      out/'tile-build.json':{'tile_files':5,'tile_bytes':10,'tile_build_seconds':97}}
-            for path,value in fixtures.items(): path.write_text(json.dumps(value))
-            report={'status':'complete','stages':[{'name':'build_tiles','status':'complete',
-                    'elapsed_seconds':100,'peak_working_disk_bytes':pilot.GIB}],
-                    'elapsed_seconds':110,'peak_cgroup_memory_bytes':pilot.GIB,
-                    'peak_working_disk_bytes':pilot.GIB,'minimum_free_disk_bytes':73*pilot.GIB,
-                    'initial_workspace_space':{'available_bytes':80*pilot.GIB}}
-            with patch.multiple(pilot,ROOT=root,OUT=out): text=pilot.metric_table(report)
-            self.assertIn('input-volume-only hypothesis x10.000',text)
-            self.assertIn('RAM is a bounded working set',text)
-            self.assertIn('national course-by-candidate-cell/encoded-pair denominator unmeasured',text)
 
 
-
-if __name__ == '__main__': unittest.main()
+if __name__=='__main__': unittest.main()

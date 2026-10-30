@@ -1,7 +1,7 @@
 """Emit the pinned modo experiment's directed full/tiled browser format.
 
-This is a separately named OSM segment/speed profile, not Valhalla's turn-aware
-cost graph. Its size must not be described as a Valhalla-equivalent browser route
+This is a separately named OSM segment/speed profile, not OSRM CH's turn-aware
+cost graph. Its size must not be described as a OSRM CH-equivalent browser route
 model. No turn restrictions or intersection penalties are represented by v1 CSR.
 """
 import hashlib
@@ -11,7 +11,7 @@ import math
 import re
 import subprocess
 
-from common import WORK, OUT, write_json, gzip_file
+from common import WORK, OUT, STATE, write_json, gzip_file
 
 CAR_CLASSES = {'motorway':100, 'motorway_link':50, 'trunk':90, 'trunk_link':45,
                'primary':80, 'primary_link':40, 'secondary':70, 'secondary_link':35,
@@ -65,7 +65,7 @@ def build_browser():
                     arcs[u,v]=min(arcs.get((u,v),math.inf),seconds)
     # flex_mem stores only referenced locations for this Illinois input. The
     # supervisor still enforces the same total RSS/disk/time budget.
-    Roads().apply_file(str(WORK/'illinois.osm.pbf'),locations=True,idx='flex_mem')
+    Roads().apply_file(str(WORK/(STATE+'.osm.pbf')),locations=True,idx='flex_mem')
     ids=tuple(sorted(nodes,key=str)); index={value:i for i,value in enumerate(ids)}
     rows=np.fromiter((index[u] for u,v in arcs),dtype=np.int64)
     cols=np.fromiter((index[v] for u,v in arcs),dtype=np.int64)
@@ -77,7 +77,7 @@ def build_browser():
     spec=importlib.util.spec_from_file_location('modo_build', WORK/'modo_build.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     values=module.canonicalize(values)
-    source=hashlib.file_digest((WORK/'illinois.osm.pbf').open('rb'),'sha256').hexdigest()
+    source=hashlib.file_digest((WORK/(STATE+'.osm.pbf')).open('rb'),'sha256').hexdigest()
     directory=OUT/'browser';directory.mkdir()
     full,full_asset=module.full_payload(values,directory/'full',source)
     tiled,tile_asset=module.tile_payload(values,directory/'tiles',source,0.05)
@@ -88,7 +88,7 @@ def build_browser():
                       'gzip_bytes':sum(x['gzip_bytes'] for x in sizes.values())}
     write_json(OUT/'browser-sizes.json',{'vertices':len(ids),'arcs':len(weights),'tiles':len(tiled['tiles']),**totals,
         'profile':'plow-osm-car-segment-static-v1','speed_fallback_kmh':CAR_CLASSES,
-        'limitations':'not Valhalla-equivalent: raw OSM segments, maxspeed or class fallback; no turn restrictions, intersection penalties, conditional access, ferries, or external-border connections; private/no motorcar access excluded',
+        'limitations':'not OSRM CH-equivalent: raw OSM segments, maxspeed or class fallback; no turn restrictions, intersection penalties, conditional access, ferries, or external-border connections; private/no motorcar access excluded',
         'source_sha256':source,'format':'unmodified pinned modo full_payload and tile_payload functions',
         'full_manifest_sha256':full_asset['sha256'],'tiles_manifest_sha256':tile_asset['sha256']})
 
