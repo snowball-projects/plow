@@ -25,6 +25,10 @@ on:
         description: Include Texas fit test (false for a focused Illinois retry)
         type: boolean
         default: true
+      illinois_stock500_only:
+        description: Recover only the three stock 500 m Illinois cases (omits Texas)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -60,6 +64,7 @@ jobs:
           PLOW_DEADLINE_UTC: ${{ inputs.deadline_utc }}
           PLOW_PROCESSING_SECONDS: ${{ inputs.processing_seconds }}
           PLOW_INCLUDE_TEXAS: ${{ inputs.include_texas }}
+          PLOW_STOCK500_ONLY: ${{ inputs.illinois_stock500_only }}
         run: |
           test "$(docker info --format '{{.CgroupDriver}}')" = systemd
           mkdir -p output
@@ -71,6 +76,7 @@ jobs:
             --setenv=PLOW_DEADLINE_UTC="$PLOW_DEADLINE_UTC" \
             --setenv=PLOW_PROCESSING_SECONDS="$PLOW_PROCESSING_SECONDS" \
             --setenv=PLOW_INCLUDE_TEXAS="$PLOW_INCLUDE_TEXAS" \
+            --setenv=PLOW_STOCK500_ONLY="$PLOW_STOCK500_ONLY" \
             --setenv=GITHUB_SHA="$(git rev-parse HEAD)" \
             /bin/bash -c 'systemctl set-property --runtime plow-pilot.slice MemoryMax=13G MemorySwapMax=0 CPUQuota=400%; exec "$@"' plow "$PWD/.venv/bin/python" scripts/overnight.py
       - name: Report outcome
