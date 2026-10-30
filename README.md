@@ -10,7 +10,7 @@ filtering, `osrm-extract -p /opt/car.lua`, `osrm-contract`, and chunked directed
 Table API requests. Our network buffer is 300 km; cells and destinations stay
 inside the selected state. No DVC, cloud cache, or external routing service.
 
-Run **State OSRM pilot** on the PR branch with its exact implementation SHA. The matrix
+Dispatch the manual pilot workflow with the PR's exact implementation SHA. The matrix
 contains **Illinois only**; the same job template selects intersecting extracts
 for each state. It uses a free standard `ubuntu-24.04` runner, four cores,
 a shared 13 GiB cgroup for Python and OSRM containers, no swap, a 10 GiB actual
