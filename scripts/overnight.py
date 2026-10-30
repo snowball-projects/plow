@@ -78,10 +78,30 @@ def national_estimate(report,spacing):
             cells*choose(a['snap_rate'] for a in anchors)+pairs*choose(a['pair_rate'] for a in anchors)+image
             for bound,choose in [('low',min),('high',max)]}
     totals={key:sum(v[key] for v in jobs.values()) for key in ['low','high']}
-    return {'status':'planning_proxy','cell_metres':spacing,'anchors':anchors,'runner_hours':{k:v/3600 for k,v in totals.items()},
+    result={'status':'planning_proxy','cell_metres':spacing,'anchors':anchors,'runner_hours':{k:v/3600 for k,v in totals.items()},
         'ideal_four_slot_lower_bound_hours':{k:max(totals[k]/4,max(v[k] for v in jobs.values()))/3600 for k in totals},
         'available_concurrency':'Unverified account headroom; this overnight experiment uses one standard job. Four slots are a conditional planning scenario.',
         'qualification':'Zero-buffer OSRM+table generation only. Build rates include any failed pre-swap/tool attempts and successful work: observed cold-run/retry workload, not an ideal successful-build time. IL/TX input-byte, cell-snap and table/encoding-pair rates bracket a planning scenario, not a confidence interval. Area/grid^2 and selected documented course records scale pairs; mapped facilities without course records are omitted. No RAM-fit claim for other states or untested Texas resolutions. Browser export, accuracy evaluation and runner provisioning excluded.'}
+    chosen=recommended(report.get('variants',[]))
+    graph_seconds=sum(s['elapsed_seconds'] for s in report['stages'] if s['context'].get('phase')=='browser_graph')
+    if chosen and graph_seconds:
+        selected=chosen['table_coverage'];source=read(OUT/'illinois/sources.json')
+        graph_rate=graph_seconds/source['input_bytes'];snap_rate=selected['snap_seconds']/selected['cells']
+        pair_rates=[(selected['matrix_seconds']+selected['encode_seconds'])/selected['requested_pairs'],anchors[1]['pair_rate']]
+        pipeline={}
+        for state in inputs:
+            cells=state['area_m2']/chosen['cell_metres']**2;pairs=cells*state['coordinate_courses']
+            pipeline[state['state']]={bound:state['input_bytes']*(choose(a['build_rate'] for a in anchors)+graph_rate)+
+                cells*snap_rate+pairs*choose(pair_rates)+image for bound,choose in [('low',min),('high',max)]}
+        hours={k:sum(v[k] for v in pipeline.values())/3600 for k in totals}
+        result['recommended_pipeline']={'method':recommended_method(chosen),'cell_metres':chosen['cell_metres'],
+            'snapping':chosen['snapping'],'runner_hours':hours,
+            'ideal_four_slot_lower_bound_hours':{k:max(hours[k]/4,max(v[k] for v in pipeline.values())/3600) for k in hours},
+            'graph_export_hours':sum(s['input_bytes']*graph_rate for s in inputs)/3600,
+            'calibration':{'browser_export_seconds_per_input_byte':graph_rate,'selected_snap_seconds_per_cell':snap_rate,
+                'illinois_selected_matrix_encode_seconds_per_pair':pair_rates[0],'texas_stock_matrix_encode_seconds_per_pair':pair_rates[1]},
+            'qualification':'Includes browser export and the selected table matching/encoding work. Browser export and selected matching are calibrated only on Illinois; pair rates use selected Illinois and stock 2 km Texas. Documented-course subset, zero buffer; no other-state RAM-fit proof. Accuracy evaluation, provisioning and transfers excluded. Four slots remain conditional on unverified account availability.'}
+    return result
 
 
 def attach_resources(report):

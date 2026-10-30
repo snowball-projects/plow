@@ -174,6 +174,16 @@ class Overnight(unittest.TestCase):
             self.assertAlmostEqual(value['runner_hours']['high'],930/3600)
             self.assertAlmostEqual(value['ideal_four_slot_lower_bound_hours']['low'],320/3600)
             self.assertAlmostEqual(value['ideal_four_slot_lower_bound_hours']['high'],620/3600)
+            report['stages'].append({'context':{'state':'illinois','phase':'browser_graph'},'elapsed_seconds':1000})
+            report['variants']=[{'status':'complete','payload_complete':True,'cell_metres':2000,'search_seconds':600,
+                'snapping':'drivable','table_gzip_bytes':1,
+                'plain':{'matrix_error_pairs':0,'exact_within_90_pairs':100,'within_2_minutes_share':.95,'nearest10_same_order_share':.6},
+                'table_coverage':{'cells':10,'snap_seconds':100,'matrix_seconds':90,'encode_seconds':0,'requested_pairs':100}}]
+            with patch.object(overnight,'OUT',out):selected=overnight.national_estimate(report,2000)
+            self.assertEqual(selected['runner_hours'],value['runner_hours'])
+            self.assertAlmostEqual(selected['recommended_pipeline']['runner_hours']['low'],3750/3600)
+            self.assertAlmostEqual(selected['recommended_pipeline']['runner_hours']['high'],4170/3600)
+            self.assertAlmostEqual(selected['recommended_pipeline']['graph_export_hours'],3000/3600)
 
     def test_sequence_reuses_illinois_build_and_freezes_reference_before_variants(self):
         with tempfile.TemporaryDirectory() as temporary:
