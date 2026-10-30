@@ -15,8 +15,12 @@ OUT=ROOT/'output'
 GIB=1024**3
 
 
+def stock500_only():
+    return os.environ.get('PLOW_STOCK500_ONLY','false').lower()=='true'
+
+
 def include_texas():
-    return os.environ.get('PLOW_INCLUDE_TEXAS','true').lower()=='true'
+    return not stock500_only() and os.environ.get('PLOW_INCLUDE_TEXAS','true').lower()=='true'
 
 
 def read(path):
@@ -249,7 +253,8 @@ class Experiments:
         return row
 
     def run(self):
-        self.build('illinois');self.evaluate(2000,600)
+        self.build('illinois')
+        if not stock500_only():self.evaluate(2000,600)
         self.report['states']['illinois']['mode']=self.mode
         pilot.stop_containers()
         if not self.time_exhausted and include_texas():self.build('texas')
@@ -258,10 +263,10 @@ class Experiments:
         il_info=self.report['states'].get('illinois',{})
         if il_info.get('network_complete'):
             self.swap(il_info.get('mode',False))
-        for spacing in [1000,500]:self.evaluate(spacing,600,new_table=True)
-        for spacing in [2000,1000,500]:
+        for spacing in ([500] if stock500_only() else [1000,500]):self.evaluate(spacing,600,new_table=True)
+        for spacing in ([500] if stock500_only() else [2000,1000,500]):
             for search in [900,1200]:self.evaluate(spacing,search)
-        for spacing in [1000,500]:self.evaluate(spacing,600,'drivable',new_table=True)
+        for spacing in ([] if stock500_only() else [1000,500]):self.evaluate(spacing,600,'drivable',new_table=True)
         chosen=recommended(self.report['variants'])
         self.report['recommended']=None if chosen is None else {
             'method':recommended_method(chosen),
@@ -283,7 +288,7 @@ def main():
         'peak_filesystem_used_bytes':initial['space']['total_bytes']-initial['space']['free_bytes'],
         'limits':{'cpu_quota_cores':4,'ram_bytes':13*GIB,'optional_swap_bytes':16*GIB,'processing_seconds':pilot.TIME_LIMIT,'deadline_utc':value},
         'measurement':'Cgroup RAM includes cache; swap measured separately. Process RSS/VmSwap sum is sampled every 2s over cgroup PIDs; shared RSS can be counted twice. Kernel peak used per stage when reset supported, otherwise sampled stage peak.',
-        'scope':('Illinois/Texas' if include_texas() else 'Illinois retry only')+'; buffer 0, one free standard public Ubuntu job, fixed 100 interior Illinois origins; no nationwide execution'}
+        'scope':('Illinois stock 500 m recovery only' if stock500_only() else 'Illinois/Texas' if include_texas() else 'Illinois retry only')+'; buffer 0, one free standard public Ubuntu job, fixed 100 interior Illinois origins; no nationwide execution'}
     print('Initial filesystem: '+json.dumps(initial),flush=True)
     code=0
     try:

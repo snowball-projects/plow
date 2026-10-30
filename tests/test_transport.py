@@ -41,5 +41,19 @@ class Transport(unittest.TestCase):
         builds.assert_called_once_with('illinois')
         self.assertEqual(evaluate.call_count,11)
 
+    def test_stock500_recovery_scores_only_the_three_missing_cases(self):
+        report={'states':{},'variants':[],'stages':[]}
+        experiment=overnight.Experiments(report,None,0)
+        def build(state):report['states'][state]={'network_complete':True,'mode':False}
+        with patch.dict('os.environ',{'PLOW_STOCK500_ONLY':'true','PLOW_INCLUDE_TEXAS':'true'}), \
+             patch.object(experiment,'build',side_effect=build) as builds, \
+             patch.object(experiment,'evaluate') as evaluate,patch.object(experiment,'swap'), \
+             patch('overnight.pilot.stop_containers'),patch('overnight.shutil.rmtree'), \
+             patch('overnight.attach_resources'),patch('overnight.national_estimate'):
+            experiment.run()
+        builds.assert_called_once_with('illinois')
+        self.assertEqual([tuple(c.args) for c in evaluate.call_args_list],[(500,600),(500,900),(500,1200)])
+        self.assertEqual(evaluate.call_args_list[0].kwargs,{'new_table':True})
+
 
 if __name__=='__main__':unittest.main()
