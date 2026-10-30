@@ -73,8 +73,8 @@ class DiskGuard(unittest.TestCase):
             root=Path(directory);out=root/'output';out.mkdir();(root/'pins').mkdir()
             fixtures={root/'pins'/'sources.json':{'national_input_volume':{'bytes':10000}},
                       root/'pins'/'extracts.json':[{'bytes':2000}],
-                      out/'regional-input.json':{'merged_pbf_bytes':1000},
-                      out/'tile-build.json':{'tile_files':5,'tile_bytes':10}}
+                      out/'regional-input.json':{'clipped_pbf_bytes':1000,'merged_pbf_bytes':2000,'source_union_buffer_area_share':0.9,'merge_seconds':1,'clip_seconds':2},
+                      out/'tile-build.json':{'tile_files':5,'tile_bytes':10,'tile_build_seconds':97}}
             for path,value in fixtures.items(): path.write_text(json.dumps(value))
             report={'status':'complete','stages':[{'name':'build_tiles','status':'complete',
                     'elapsed_seconds':100,'peak_working_disk_bytes':pilot.GIB}],

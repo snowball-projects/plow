@@ -12,12 +12,17 @@ packaging. It stops at that reserve, 13 GiB memory, or five hours, retaining
 honest partial measurements. It never builds nationwide or modifies apps.
 
 Pinned October 28 Geofabrik extracts cover Illinois, its five land neighbours,
-and Michigan. The October 29 published fairway catalog retains names and
+with Michigan excluded. Roads are clipped to a 200 km EPSG:5070 buffer
+using complete OSM ways; source-union gaps are reported. Tiles use all four cores. The October 29 published fairway catalog retains names and
 coordinates, including property-point qualifications and missing arrivals.
-EPSG:5070 cells are 2 km squares. Traffic-free Valhalla runs **origin to course**;
+EPSG:5070 cells are 2 km squares with centres inside Illinois. Per-course
+`timedistancematrix` batches keep cells as sources and the course as the single
+target; the response algorithm is verified. Traffic-free travel is **origin to course**;
 raw durations ≤90 minutes encode as `floor(seconds / 60 + 0.5)`.
 100 uniform-area Illinois origins use seed `20261029`; 12 separate synthetic
-city/rural/border cases supplement them. Missing centre entries fail accuracy
+city/rural/border cases supplement them. Each origin makes one one-to-many
+matrix call (112 total); accuracy measures discretization/encoding against the
+same algorithm, whose destination-only/no-thru behavior differs from CostMatrix. Missing centre entries fail accuracy
 thresholds; nearest-10 compares ordered IDs, with ID ties, among exact routes
 ≤90 minutes. Snap failures and routing errors remain explicit.
 

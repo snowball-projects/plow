@@ -1,6 +1,5 @@
 """Download pinned public inputs; preserve catalog names/coordinates verbatim."""
 import json
-import subprocess
 from common import ROOT, WORK, OUT, download, write_json
 
 
@@ -55,8 +54,8 @@ def prepare():
     for e in extracts:
         path = WORK / (e['state'] + '.osm.pbf')
         row = download(e['url'], path, e['md5'], 'md5', e['bytes'])
-        header = json.loads(subprocess.check_output(['osmium', 'fileinfo', '-j', str(path)]))
-        records.append({**e, **row, 'pbf_fileinfo': header})
+        download(e['boundary']['url'], WORK / (e['state'] + '.poly'), e['boundary']['sha256'])
+        records.append({**e, **row})
         write_json(OUT / 'downloaded-extracts.json', records)
         print(f"Downloaded {e['state']}: {row['bytes']} bytes", flush=True)
     modo = pins['modo']

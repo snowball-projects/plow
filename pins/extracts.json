@@ -6,7 +6,12 @@
     "md5": "6f8cbe39a79ab8cc0e56e462e25a55a6",
     "last_modified": "Wed, 28 Oct 2026 23:54:22 GMT",
     "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/illinois.html"
+    "source_page": "https://download.geofabrik.de/north-america/us/illinois.html",
+    "boundary": {
+      "url": "https://download.geofabrik.de/north-america/us/illinois.poly",
+      "sha256": "c81147880ec6551ea2272cbaf1c0a3e33c4578dbaf184591eab21899cfabb7a3",
+      "checked_on": "2026-10-30"
+    }
   },
   {
     "state": "indiana",
@@ -15,7 +20,12 @@
     "md5": "85dfaf99d05f327640a3d54e39dbaa69",
     "last_modified": "Wed, 28 Oct 2026 23:55:12 GMT",
     "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/indiana.html"
+    "source_page": "https://download.geofabrik.de/north-america/us/indiana.html",
+    "boundary": {
+      "url": "https://download.geofabrik.de/north-america/us/indiana.poly",
+      "sha256": "198de568771ad8d45eeb7d5304f76a896d565c2b4e5c546a6809b374d73c78c8",
+      "checked_on": "2026-10-30"
+    }
   },
   {
     "state": "iowa",
@@ -24,7 +34,12 @@
     "md5": "fa828ac10cae054014180567e9e199bf",
     "last_modified": "Wed, 28 Oct 2026 23:55:37 GMT",
     "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/iowa.html"
+    "source_page": "https://download.geofabrik.de/north-america/us/iowa.html",
+    "boundary": {
+      "url": "https://download.geofabrik.de/north-america/us/iowa.poly",
+      "sha256": "d3a6848d59c6b3bfff4426da1cea3e2bab4c72c1477b902d280f45b27365d296",
+      "checked_on": "2026-10-30"
+    }
   },
   {
     "state": "kentucky",
@@ -33,7 +48,12 @@
     "md5": "6e6bc6f488eaaf62923b4efcff1e3e28",
     "last_modified": "Thu, 29 Oct 2026 05:40:35 GMT",
     "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/kentucky.html"
+    "source_page": "https://download.geofabrik.de/north-america/us/kentucky.html",
+    "boundary": {
+      "url": "https://download.geofabrik.de/north-america/us/kentucky.poly",
+      "sha256": "db9fb0920a564a46fdb8a3c9b0da5a54d772ec57cbffa48448790fd85badb64f",
+      "checked_on": "2026-10-30"
+    }
   },
   {
     "state": "missouri",
@@ -42,7 +62,12 @@
     "md5": "57c432f41724769d38c51d6c2d423e0e",
     "last_modified": "Wed, 28 Oct 2026 23:58:04 GMT",
     "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/missouri.html"
+    "source_page": "https://download.geofabrik.de/north-america/us/missouri.html",
+    "boundary": {
+      "url": "https://download.geofabrik.de/north-america/us/missouri.poly",
+      "sha256": "6a219b5309466d5b005a37df2d4606e5a581a33e091e7b2aa3585c582b2de9fe",
+      "checked_on": "2026-10-30"
+    }
   },
   {
     "state": "wisconsin",
@@ -51,15 +76,11 @@
     "md5": "6266be6b04924ce597e2680d9333a913",
     "last_modified": "Wed, 28 Oct 2026 23:57:00 GMT",
     "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/wisconsin.html"
-  },
-  {
-    "state": "michigan",
-    "url": "https://download.geofabrik.de/north-america/us/michigan-261028.osm.pbf",
-    "bytes": 316150199,
-    "md5": "16d17bddadd2ebba81d2f137bc4e1ce5",
-    "last_modified": "Wed, 28 Oct 2026 23:58:50 GMT",
-    "data_date": "2026-10-28",
-    "source_page": "https://download.geofabrik.de/north-america/us/michigan.html"
+    "source_page": "https://download.geofabrik.de/north-america/us/wisconsin.html",
+    "boundary": {
+      "url": "https://download.geofabrik.de/north-america/us/wisconsin.poly",
+      "sha256": "32097bf789c681a59bc34a4bae5aeb172a2de843304bc945c7486cc08de8dde3",
+      "checked_on": "2026-10-30"
+    }
   }
 ]

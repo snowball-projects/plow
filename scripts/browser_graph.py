@@ -92,6 +92,8 @@ def build_browser():
         'source_sha256':source,'format':'unmodified pinned modo full_payload and tile_payload functions',
         'full_manifest_sha256':full_asset['sha256'],'tiles_manifest_sha256':tile_asset['sha256']})
 
+    print('Browser sizes: ' + (OUT/'browser-sizes.json').read_text(), flush=True)
+
 
 if __name__=='__main__':
     build_browser()

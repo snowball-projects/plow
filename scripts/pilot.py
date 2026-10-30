@@ -78,10 +78,10 @@ def metric_table(report):
     national=json.loads((ROOT/'pins/sources.json').read_text()).get('national_input_volume')
     missing='unavailable: '+reason
     build=stages.get('build_tiles')
-    hypothetical_time='unsupported: completed seven-state tile baseline unavailable'
+    hypothetical_time='unsupported: completed buffered regional tile baseline unavailable'
     hypothetical_disk=hypothetical_time;hypothetical_tiles=hypothetical_time
     if tile and merged and national and build and build['status']=='complete':
-        factor=national['bytes']/merged['merged_pbf_bytes']
+        factor=national['bytes']/merged['clipped_pbf_bytes']
         qualifier=f'input-volume-only hypothesis x{factor:.3f}; compressed OSM includes non-roads, temporary working set is nonlinear'
         hypothetical_time=f"{build['elapsed_seconds']*factor/3600:.2f} h; "+qualifier
         hypothetical_disk=f"{build['peak_working_disk_bytes']*factor/GIB:.2f} GiB; "+qualifier
@@ -93,19 +93,24 @@ def metric_table(report):
         f"{counts['illinois_courses']} records; {counts['with_published_coordinates']} coordinates; {counts['missing_destination']} missing; "
         f"{counts['distinct_published_destination_ids']} distinct destinations; snaps not measured") if counts else missing
     table=[['Metric','Measured Illinois / regional pilot','Nationwide extrapolation'],
-        ['Pinned regional extracts',f"{sum(x['bytes'] for x in json.loads((ROOT/'pins/extracts.json').read_text())):,} bytes, 7 states",'regional road-input scope'],
+        ['Pinned regional extracts',f"{sum(x['bytes'] for x in json.loads((ROOT/'pins/extracts.json').read_text())):,} bytes, 6 states before clip",'200 km buffer intersected with six source extracts; see coverage row'],
+        ['Road clip coverage',f"{merged['clipped_pbf_bytes']} PBF bytes; {merged['source_union_buffer_area_share']:.2%} of requested buffer covered by source polygons; Michigan excluded" if merged else missing,'no claim of complete 200 km coverage'],
         ['Illinois course coverage',course_text,'course records are distinct from regional road volume'],
         ['Supervised processing, excludes setup/apt/pip',f"{report.get('elapsed_seconds',0):.1f} s",'not total Actions wall time'],
-        ['Regional merge + tile phase',f"{build['elapsed_seconds']:.1f} s ({build['status']})" if build else missing,hypothetical_time],
+        *[[f"Stage: {stage['name']}", f"{stage['elapsed_seconds']:.1f} s ({stage['status']})", 'measured, excludes apt/pip setup'] for stage in report['stages']],
+        ['Regional merge + clip + tile phase',f"{build['elapsed_seconds']:.1f} s ({build['status']})" if build else missing,hypothetical_time],
         ['Peak aggregate cgroup memory',f"{report.get('peak_cgroup_memory_bytes',0)/GIB:.3f} GiB incl. page cache",'unsupported: RAM is a bounded working set; national peak/build strategy unmeasured'],
         ['Peak observed working disk',f"{report.get('peak_working_disk_bytes',0)/GIB:.3f} GiB, 2 s sampling",hypothetical_disk],
+        ['Valhalla executable / merge / clip',f"{tile['tile_build_seconds']:.1f} / {merged['merge_seconds']:.1f} / {merged['clip_seconds']:.1f} s; four build threads" if tile and merged else missing,'stage sub-times'],
         ['Tile files / bytes',f"{tile['tile_files']} / {tile['tile_bytes']}" if tile else missing,hypothetical_tiles],
         ['Tables raw / gzip',f"{sizes['total_raw_bytes']} / {sizes['total_gzip_bytes']} bytes" if sizes else missing,'unsupported: national course-by-candidate-cell/encoded-pair denominator unmeasured'],
         ['Per-area raw / gzip ranges',f"{len(sizes['areas'])} areas; raw {min(x['raw_bytes'] for x in sizes['areas'].values())}..{max(x['raw_bytes'] for x in sizes['areas'].values())}; gzip {min(x['gzip_bytes'] for x in sizes['areas'].values())}..{max(x['gzip_bytes'] for x in sizes['areas'].values())} bytes" if sizes and sizes['areas'] else missing,'no national area-size claim'],
-        ['Grid candidate/requested/encoded pairs',f"{grid['candidate_pairs_considered']} / {grid['matrix_pairs_requested']} / {grid['pairs_within90']}; {grid['table_generation_seconds']:.1f} s" if grid else missing,'unsupported: no national pair count; pilot pairs are Illinois destinations against regional cells'],
-        ['Random-origin snap and route coverage',f"{r['origin_snap_succeeded']}/{r['origins']} snapped; {r['origin_snap_failed']} failed; {r['origins_with_exact_within90']} origins with <=90 min routes; {r['route_error_pairs']} route errors; {r['exact_within_90_pairs']} eligible pairs; {r['missing_table_for_exact_within90']} missing table pairs" if r else missing,'conditional accuracy below must be read with these omissions'],
+        ['Grid candidate/requested/encoded pairs',f"{grid['candidate_pairs_considered']} / {grid['matrix_pairs_requested']} / {grid['pairs_within90']}; {grid['table_generation_seconds']:.1f} s" if grid else missing,'unsupported: no national pair count; pilot pairs are Illinois destinations against Illinois cell centres'],
+        ['Table matrix batches / snap failures',f"{grid['matrix_calls_completed']}/{grid['matrix_calls_planned']} calls; {grid['cells_considered']} Illinois centres; {grid['cell_snap_failed']} failed snaps; {grid['matrix_error_pairs']} batch-error pairs; {grid['matrix_null_pairs']} null pairs" if grid else missing,'reverse expansion per course-target batch'],
+        ['Accuracy matrix calls',f"{acc['matrix_calls']}/112; {acc['accuracy_seconds']:.1f} s; same-algorithm discretization/encoding check" if acc else missing,'not independent route-realism validation'],
+        ['Random-origin snap and matrix coverage',f"{r['origin_snap_succeeded']}/{r['origins']} snapped; {r['origin_snap_failed']} failed; {r['origins_with_exact_within90']} origins with <=90 min routes; {r['matrix_error_pairs']} matrix errors; {r['matrix_null_pairs']} null pairs; {r['exact_within_90_pairs']} eligible pairs; {r['missing_table_for_exact_within90']} missing table pairs" if r else missing,'conditional accuracy below must be read with these omissions'],
         ['Accuracy within 1 / 2 min',f"{r['within_1_minute_count']}/{r['exact_within_90_pairs']} / {r['within_2_minutes_count']}/{r['exact_within_90_pairs']} pairs; shares {r['within_1_minute_share']} / {r['within_2_minutes_share']}" if r else missing,'no national accuracy claim'],
-        ['Nearest-10 same order',f"{r['nearest10_same_order_count']}/{r['nearest10_eligible_origins']} eligible origins; {r['origins']-r['nearest10_eligible_origins']} ineligible (<10 exact routes)" if r else missing,'no national accuracy claim'],
+        ['Nearest-10 same order',f"{r['nearest10_same_order_count']}/{r['nearest10_eligible_origins']} eligible origins; {r['origins']-r['nearest10_eligible_origins']} ineligible (<10 exact matrix routes)" if r else missing,'no national accuracy claim'],
         ['Illinois browser full / tiles gzip',f"{browser['full']['gzip_bytes']} / {browser['tiles']['gzip_bytes']} bytes" if browser else missing,'unsupported: national segment/arc population unmeasured; course count is not a road proxy'],
         ['Workspace available disk, initial / minimum',f"{report['initial_workspace_space']['available_bytes']/GIB:.3f} / {report['minimum_free_disk_bytes']/GIB:.3f} GiB; 10 GiB reserve",'measured filesystem space, not advertised runner SSD figure']]
     text='| '+' | '.join(table[0])+' |\n|---|---|---|\n'
@@ -114,70 +119,60 @@ def metric_table(report):
 
 
 def run_stage(name, report, cg, started):
-    log_path=WORK/(name+'.log')
-    stage={'name':name,'status':'running','peak_working_disk_bytes':0,
-           'minimum_free_disk_bytes':workspace_space()['available_bytes']}
+    stage = {'name':name, 'status':'running', 'peak_working_disk_bytes':0,
+             'minimum_free_disk_bytes':workspace_space()['available_bytes']}
     report['stages'].append(stage)
-    begin=time.monotonic()
-    with log_path.open('w') as log:
-        proc=subprocess.Popen(['/usr/bin/time','-v','-o',str(OUT/(name+'-time.txt')),
-            sys.executable,str(ROOT/'scripts'/(name+'.py'))],cwd=WORK,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
-        try:
-            while True:
-                memory=read_number(cg/'memory.current')
-                peak=read_number(cg/'memory.peak')
-                composition=memory_stat(cg)
-                disk=disk_bytes()
-                space=workspace_space()
-                free=space['available_bytes']
-                report['peak_cgroup_memory_bytes']=max(report['peak_cgroup_memory_bytes'],peak or memory or 0)
-                report['peak_working_disk_bytes']=max(report['peak_working_disk_bytes'],disk)
-                report['minimum_free_disk_bytes']=min(report['minimum_free_disk_bytes'],free)
-                report['last_memory_stat']=composition
-                report['peak_observed_anon_bytes']=max(report['peak_observed_anon_bytes'],composition.get('anon',0))
-                report['last_workspace_space']=space
-                report['peak_filesystem_used_bytes']=max(report['peak_filesystem_used_bytes'],space['total_bytes']-space['free_bytes'])
-                stage.update({'elapsed_seconds':time.monotonic()-begin,'last_memory_bytes':memory,
-                    'last_disk_bytes':disk,'last_free_disk_bytes':free,
-                    'peak_working_disk_bytes':max(stage['peak_working_disk_bytes'],disk),
-                    'minimum_free_disk_bytes':min(stage['minimum_free_disk_bytes'],free)})
-                write_json(OUT/'report.json',report)
-                with (OUT/'resource-samples.jsonl').open('a') as sample:
-                    sample.write(json.dumps({'stage':name,'elapsed_seconds':time.monotonic()-started,'cgroup_memory_bytes':memory,'working_disk_bytes':disk,'free_disk_bytes':free,'available_inodes':space['available_inodes'],'memory_stat':composition})+'\n')
-                if free<DISK_RESERVE:
-                    raise CapacityStop(f'{name}: workspace filesystem available disk {free} bytes below {DISK_RESERVE} byte system/packaging reserve')
-                # memory.current includes reclaimable file cache. Keep the
-                # unchanged kernel memory.max=13 GiB bound; only actual OOM
-                # events establish inability to fit that enforced memory set.
-                if time.monotonic()-started>=TIME_LIMIT:
-                    raise CapacityStop(f'{name}: five-hour processing budget exhausted; reserve report/upload time')
-                code=proc.poll()
-                if code is not None:
-                    stage['returncode']=code
-                    events=(cg/'memory.events').read_text()
-                    if code and ('oom_kill 0' not in events):
-                        raise CapacityStop(f'{name}: cgroup 13 GiB memory limit killed the build; {events.strip()}')
-                    if code:
-                        raise RuntimeError(f'{name} failed with exit {code}; see stage log')
-                    stage['status']='complete'
-                    break
-                time.sleep(2)
-        except BaseException:
-            if proc.poll() is None:
-                os.killpg(proc.pid,signal.SIGTERM)
-                try: proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid,signal.SIGKILL);proc.wait()
-            stage['status']='stopped'
-            raise
-        finally:
-            stage['elapsed_seconds']=time.monotonic()-begin
-            # Keep a bounded tail as review evidence; full log stays in Actions.
-            with log_path.open('rb') as source:
-                source.seek(max(0,log_path.stat().st_size-512_000))
-                (OUT/(name+'-log-tail.txt')).write_bytes(source.read())
-            print(f'--- {name} final log tail ---',flush=True)
-            print((OUT/(name+'-log-tail.txt')).read_text(errors='replace'),flush=True)
+    begin = time.monotonic(); last_print = begin - 60
+    time_path = OUT / (name + '-time.txt')
+    # Inherit stdout: batch counters and completed stage metrics survive Actions
+    # cancellation instead of being hidden in a temporary runner-only log.
+    proc = subprocess.Popen(['/usr/bin/time','-v','-o',str(time_path), sys.executable,
+        '-u',str(ROOT/'scripts'/(name+'.py'))], cwd=WORK, start_new_session=True)
+    try:
+        while True:
+            memory = read_number(cg/'memory.current')
+            peak = read_number(cg/'memory.peak')
+            composition = memory_stat(cg); disk = disk_bytes(); space = workspace_space()
+            free = space['available_bytes']; now = time.monotonic()
+            report['peak_cgroup_memory_bytes'] = max(report['peak_cgroup_memory_bytes'], peak or memory or 0)
+            report['peak_working_disk_bytes'] = max(report['peak_working_disk_bytes'], disk)
+            report['minimum_free_disk_bytes'] = min(report['minimum_free_disk_bytes'], free)
+            report['last_memory_stat'] = composition
+            report['peak_observed_anon_bytes'] = max(report['peak_observed_anon_bytes'], composition.get('anon',0))
+            report['last_workspace_space'] = space
+            report['peak_filesystem_used_bytes'] = max(report['peak_filesystem_used_bytes'], space['total_bytes']-space['free_bytes'])
+            stage.update({'elapsed_seconds':now-begin, 'last_memory_bytes':memory,
+                'last_disk_bytes':disk, 'last_free_disk_bytes':free,
+                'peak_working_disk_bytes':max(stage['peak_working_disk_bytes'],disk),
+                'minimum_free_disk_bytes':min(stage['minimum_free_disk_bytes'],free)})
+            report['elapsed_seconds'] = now-started
+            write_json(OUT/'report.json', report)
+            if now-last_print >= 60:
+                print('Resource checkpoint: ' + json.dumps(report), flush=True); last_print = now
+            if free < DISK_RESERVE:
+                raise CapacityStop(f'{name}: workspace filesystem available disk {free} bytes below {DISK_RESERVE} byte system/packaging reserve')
+            if now-started >= TIME_LIMIT:
+                raise CapacityStop(f'{name}: five-hour processing budget exhausted')
+            code = proc.poll()
+            if code is not None:
+                stage['returncode'] = code
+                if code and 'oom_kill 0' not in (cg/'memory.events').read_text():
+                    raise CapacityStop(f'{name}: actual OOM at enforced 13 GiB memory limit')
+                if code: raise RuntimeError(f'{name} failed with exit {code}; see Actions log')
+                stage['status'] = 'complete'; break
+            time.sleep(2)
+    except BaseException:
+        if proc.poll() is None:
+            os.killpg(proc.pid,signal.SIGTERM)
+            try: proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid,signal.SIGKILL); proc.wait()
+        stage['status'] = 'stopped'
+        raise
+    finally:
+        stage['elapsed_seconds'] = time.monotonic()-begin
+        print('Stage outcome: ' + json.dumps(stage), flush=True)
+        if time_path.exists(): print(time_path.read_text(), flush=True)
 
 
 def main():
@@ -198,9 +193,7 @@ def main():
         'minimum_free_disk_bytes':filesystem['space']['available_bytes'],
         'peak_filesystem_used_bytes':filesystem['space']['total_bytes']-filesystem['space']['free_bytes'],
         'filesystem_evidence':filesystem,
-        'prior_attempt':{'url':'https://github.com/snowball-projects/plow/actions/runs/40936855016',
-            'interpretation':'stopped at an overly conservative 12 GiB work-directory cap with 73.434 GiB still available; not evidence the pilot cannot fit the free runner'},
-        'limits':{'cpu':4,'tile_threads':2,'memory_hard_bytes':13*GIB,'workspace_free_disk_reserve_bytes':DISK_RESERVE,'processing_seconds':TIME_LIMIT},
+        'limits':{'cpu':4,'tile_threads':4,'memory_hard_bytes':13*GIB,'workspace_free_disk_reserve_bytes':DISK_RESERVE,'processing_seconds':TIME_LIMIT},
         'measurement':'cgroup v2 memory.peak includes all descendants and page cache; work storage uses allocated st_blocks incl. venv, inputs and intermediates; disk sampled every 2s; GNU time -v per stage also retained',
         'cost':'public standard ubuntu-24.04 only; no cache, release, data commit, paid runner, or laptop processing'}
     code=0
@@ -223,7 +216,6 @@ def main():
         write_json(OUT/'report.json',report)
         (OUT/'report.md').write_text(f"Pilot status: **{report['status']}**\n\n"+metric_table(report)+'\n\n'+
             'Measurements cover this runner only. Incomplete stages have no extrapolation.\n'
-            'Correction: the first attempt stopped at a conservative 12 GiB working cap while 73.434 GiB remained available; it did not establish free-runner infeasibility.\n'
             'Raw inputs, merged PBFs and Valhalla tiles are intermediates, excluded from output artifacts.\n'
             'Course property-point and missing-arrival qualifications are preserved in courses.json.\n')
         # Mark partial generated payloads so interrupted files can never be

@@ -9,9 +9,8 @@ from common import (WORK, OUT, SEED, GRID_METRES, LIMIT_SECONDS,
 
 # This upper bound is deliberately generous: top_speed=140 km/h means at most
 # 210 km driving in 90 min, plus <=1 km snap at each endpoint. EPSG:5070's
-# projected bounding margin is 250 km; candidates use geodesic <=212 km.
+# candidates use geodesic <=212 km.
 CANDIDATE_METRES = 212_000
-PROJECTED_MARGIN = 250_000
 AUTO = {'top_speed': 140, 'speed_types': ['freeflow']}
 
 
@@ -75,37 +74,51 @@ def snap(actor, point):
         return {'status': 'snap_failed', 'valhalla_code': error.code}
 
 
-def matrix(actor, point, courses):
-    """The cell centre is a SOURCE and courses are TARGETS on directed roads."""
-    if not courses:
-        return {}
-    result = decode(actor.matrix({**request_base(),
-        'sources': [location(point)],
-        'targets': [location((c['destination']['latitude'], c['destination']['longitude'])) for c in courses]}))
-    row = result['sources_to_targets'][0]
-    if len(row) != len(courses):
-        raise ValueError('Matrix target count mismatch')
-    output = {}
-    for c, pair in zip(courses, row):
-        seconds = pair.get('time')
-        if seconds is not None and (not math.isfinite(seconds) or seconds < 0):
-            raise ValueError('Invalid matrix duration')
-        output[c['course_id']] = seconds
-    return output
+BATCH_SIZE = 2500
 
 
-def reference(actor, point, course):
+def matrix_times(actor, sources, targets):
+    """Directed source -> target durations, with the requested expansion verified."""
+    result = decode(actor.matrix({**request_base(), 'sources': [location(p) for p in sources],
+                                 'targets': [location(p) for p in targets]}))
+    if result.get('algorithm') != 'timedistancematrix':
+        raise ValueError('Expected timedistancematrix, got ' + str(result.get('algorithm')))
+    rows = result['sources_to_targets']
+    if len(rows) != len(sources) or any(len(row) != len(targets) for row in rows):
+        raise ValueError('Matrix dimensions mismatch')
+    times = [[pair.get('time') for pair in row] for row in rows]
+    if any(t is not None and (not math.isfinite(t) or t < 0) for row in times for t in row):
+        raise ValueError('Invalid matrix duration')
+    return times
+
+
+def course_matrix(actor, cells, course):
+    # More than one source and one target makes TimeDistanceMatrix expand in
+    # reverse from the course; 1x1 tails remain direction-correct.
+    target = (course['destination']['latitude'], course['destination']['longitude'])
+    return [row[0] for row in matrix_times(actor, cells, [target])]
+
+
+def origin_matrices(actor, origins, targets):
+    """One attempted one-to-many call per origin, including failed origins."""
     from valhalla import ValhallaError
-    try:
-        data = decode(actor.route({**request_base(), 'locations': [location(point),
-            location((course['destination']['latitude'], course['destination']['longitude']))]}))
-        seconds = data['trip']['summary']['time']
-        if not math.isfinite(seconds) or seconds < 0:
-            raise ValueError('Invalid reference duration')
-        return {'status': 'routed', 'seconds': seconds}
-    except ValhallaError as error:
-        # Explicitly preserve all failures; do not silently call them unreachable.
-        return {'status': 'route_error', 'valhalla_code': error.code}
+    for origin in origins:
+        failure = None
+        try:
+            seconds = matrix_times(actor, [(origin['latitude'], origin['longitude'])], targets)[0]
+        except ValhallaError as error:
+            seconds = [None] * len(targets)
+            failure = {'status':'matrix_error', 'valhalla_code':error.code}
+        yield origin, seconds, failure
+
+
+def illinois_cells(polygon):
+    """Only centres within the metric polygon, not its bounding rectangle."""
+    from shapely.geometry import Point
+    ix0, iy0 = cell_key(*polygon.bounds[:2])
+    ix1, iy1 = cell_key(*polygon.bounds[2:])
+    return [(ix, iy) for ix in range(ix0, ix1+1) for iy in range(iy0, iy1+1)
+            if polygon.contains(Point(*centre((ix, iy))))]
 
 
 def representative_points():
@@ -161,9 +174,10 @@ def accuracy_summary(rows):
             'nearest10_eligible_origins': len(top_eligible), 'nearest10_same_order_count': ordered,
             'nearest10_same_order_share': ordered / len(top_eligible) if top_eligible else None,
             'missing_table_for_exact_within90': sum(p.get('table_minutes') is None for p in eligible_pairs),
-            'route_error_pairs': sum(p['reference_status'] == 'route_error' for r in rows for p in r['pairs']),
+            'matrix_error_pairs': sum(p['reference_status'] == 'matrix_error' for r in rows for p in r['pairs']),
+            'matrix_null_pairs': sum(p['reference_status'] == 'matrix_null' for r in rows for p in r['pairs']),
             'nearest10_definition': 'Exact point-to-course seconds then course_id vs encoded cell-centre minutes then course_id; top-10 ID sequences identical, exact >=10 within90 denominator; missing/short table fails',
-            'error_definition': 'abs(encoded whole-minute centre time - exact point route seconds/60); exact <=5400s pairs denominator, missing centre entry fails both thresholds'}
+            'error_definition': 'abs(encoded whole-minute centre time - exact point matrix seconds/60); exact <=5400s pairs denominator, missing centre entry fails both thresholds'}
 
 
 def route_pilot():
@@ -193,100 +207,120 @@ def route_pilot():
     print('Course coverage: '+json.dumps(coverage), flush=True)
     if not usable:
         raise RuntimeError('No published Illinois destination can be snapped within 1 km')
-    coords = [to_xy(c['destination']['longitude'], c['destination']['latitude']) for c in usable]
-    # Every cell centre in this conservative rectangular envelope is considered;
-    # only geodesically impossible origin/course pairs are skipped.
-    ix0, iy0 = cell_key(min(x for x, y in coords) - PROJECTED_MARGIN,
-                        min(y for x, y in coords) - PROJECTED_MARGIN)
-    ix1, iy1 = cell_key(max(x for x, y in coords) + PROJECTED_MARGIN,
-                        max(y for x, y in coords) + PROJECTED_MARGIN)
-    table_dir = OUT / 'tables'; table_dir.mkdir()
-    cache = {}
+    from shapely.ops import transform
+    illinois = transform(to_xy, polygon_from_poly(WORK / 'illinois.poly'))
+    keys = illinois_cells(illinois)
+    points = {}
+    table = {}
     table_started = time.monotonic()
-    counts = {'candidate_pairs_considered': 0, 'matrix_pairs_requested': 0, 'cells_considered': 0, 'cell_snap_failed': 0, 'matrix_null_pairs': 0,
-              'pairs_within90': 0, 'grid_crs': 'EPSG:5070', 'cell_metres': GRID_METRES,
-              'candidate_radius_metres': CANDIDATE_METRES, 'rounding': 'floor(seconds/60+0.5), raw <=5400 eligibility',
-              'area_partition': '20x20 cells = 40 km squares; cell indices floor(EPSG:5070 coordinate/2000)',
-              'scope': 'seven-state graph only; external detours and unretained roads are not proven covered',
-              'snap_policy': 'Valhalla drivable edge correlation, search_cutoff=1000m, minimum_reachability=0; failure stored explicitly'}
-    handles = {}
-    def cell(point, key):
-        candidates = [c for c in usable if geod.inv(point[1], point[0],
-            c['destination']['longitude'], c['destination']['latitude'])[2] <= CANDIDATE_METRES]
-        counts['candidate_pairs_considered'] += len(candidates)
-        if not candidates:
-            return {'status': 'no_candidates', 'minutes': {}}
-        status = snap(actor, point)
-        if status['status'] != 'snapped':
+    counts = {'cells_considered': len(keys), 'cell_snap_failed': 0,
+              'candidate_pairs_considered': 0, 'matrix_pairs_requested': 0,
+              'matrix_null_pairs': 0, 'matrix_error_pairs': 0, 'matrix_error_batches': 0,
+              'pairs_within90': 0, 'matrix_calls_planned': 0, 'matrix_calls_completed': 0,
+              'courses_completed': 0, 'batch_size': BATCH_SIZE,
+              'grid_crs': 'EPSG:5070', 'cell_metres': GRID_METRES,
+              'candidate_radius_metres': CANDIDATE_METRES,
+              'rounding': 'floor(seconds/60+0.5), raw <=5400 eligibility',
+              'area_partition': '20x20 cells = 40 km squares',
+              'scope': 'centres strictly inside pinned Illinois polygon; roads in 200 km buffer intersected with six source extracts',
+              'snap_policy': 'drivable edge within 1000 m; failures explicit, no invented durations',
+              'algorithm': 'timedistancematrix; sources=cell centres, single target=course'}
+    for key in keys:
+        lon, lat = to_ll(*centre(key))
+        status = snap(actor, (lat, lon))
+        table[key] = {**status, 'minutes': {}, 'matrix_null_course_ids': [], 'matrix_error_course_ids': []}
+        if status['status'] == 'snapped':
+            points[key] = (lat, lon)
+        else:
             counts['cell_snap_failed'] += 1
-            return {**status, 'minutes': {}}
-        counts['matrix_pairs_requested'] += len(candidates)
-        seconds = {}
-        for i in range(0, len(candidates), 128):
-            seconds.update(matrix(actor, point, candidates[i:i+128]))
-        counts['matrix_null_pairs'] += sum(s is None for s in seconds.values())
-        minutes = {cid: whole_minutes(s) for cid, s in seconds.items() if s is not None and s <= LIMIT_SECONDS}
-        counts['pairs_within90'] += len(minutes)
-        return {'status': 'routed', 'minutes': minutes,
-                'matrix_null_course_ids': [cid for cid,s in seconds.items() if s is None]}
+    plans = []
+    for course in usable:
+        dest = course['destination']
+        candidates = [key for key, (lat, lon) in points.items()
+                      if geod.inv(lon, lat, dest['longitude'], dest['latitude'])[2] <= CANDIDATE_METRES]
+        plans.append((course, candidates))
+        counts['candidate_pairs_considered'] += len(candidates)
+        counts['matrix_calls_planned'] += math.ceil(len(candidates) / BATCH_SIZE)
+    print('Table plan: ' + json.dumps(counts), flush=True)
+    from valhalla import ValhallaError
+    for course, candidates in plans:
+        cid = course['course_id']
+        for start in range(0, len(candidates), BATCH_SIZE):
+            batch = candidates[start:start+BATCH_SIZE]
+            counts['matrix_pairs_requested'] += len(batch)
+            try:
+                seconds = course_matrix(actor, [points[key] for key in batch], course)
+            except ValhallaError as error:
+                counts['matrix_error_batches'] += 1
+                counts['matrix_error_pairs'] += len(batch)
+                for key in batch: table[key]['matrix_error_course_ids'].append(cid)
+                print(f'Matrix batch error course={cid} code={error.code} cells={len(batch)}', flush=True)
+            else:
+                for key, duration in zip(batch, seconds):
+                    if duration is None:
+                        counts['matrix_null_pairs'] += 1
+                        table[key]['matrix_null_course_ids'].append(cid)
+                    elif duration <= LIMIT_SECONDS:
+                        table[key]['minutes'][cid] = whole_minutes(duration)
+                        counts['pairs_within90'] += 1
+            counts['matrix_calls_completed'] += 1
+            counts['table_generation_seconds'] = time.monotonic() - table_started
+            write_json(OUT / 'table-progress.json', counts)
+            print('Table progress: ' + json.dumps(counts), flush=True)
+        counts['courses_completed'] += 1
+    table_dir = OUT / 'tables'; table_dir.mkdir()
+    handles = {}
     try:
-        for ix in range(ix0, ix1+1):
-            for iy in range(iy0, iy1+1):
-                key = (ix, iy)
-                lon, lat = to_ll(*centre(key))
-                record = cell((lat, lon), key)
-                counts['cells_considered'] += 1
-                # Sparse table still records failures/nulls. Cells with no nearby
-                # courses are defined by the manifest envelope and omitted.
-                if record['status'] != 'no_candidates':
-                    area = f'{ix//20}_{iy//20}'
-                    if area not in handles:
-                        handles[area] = (table_dir / (area + '.jsonl')).open('w')
-                    handles[area].write(json.dumps({'cell': key, **record}, separators=(',', ':')) + '\n')
-                if counts['cells_considered'] % 1000 == 0:
-                    write_json(OUT / 'table-progress.json', counts)
-                    print(json.dumps(counts), flush=True)
+        for key, record in table.items():
+            area = f'{key[0]//20}_{key[1]//20}'
+            if area not in handles: handles[area] = (table_dir / (area + '.jsonl')).open('w')
+            handles[area].write(json.dumps({'cell':key, **record}, separators=(',', ':')) + '\n')
     finally:
-        for h in handles.values(): h.close()
+        for handle in handles.values(): handle.close()
     counts['table_generation_seconds'] = time.monotonic() - table_started
-    write_json(OUT / 'table-manifest.json', {**counts, 'envelope_cells': [ix0, iy0, ix1, iy1],
-        'course_catalog': json.loads((OUT / 'provenance.json').read_text())['catalog'],
-        'missing_destination_courses': sum(c['destination'] is None for c in courses),
-        'course_snap_failed': sum(c.get('snap',{}).get('status') == 'snap_failed' for c in courses)})
+    write_json(OUT / 'table-manifest.json', counts)
+    print('Table complete: ' + json.dumps(counts), flush=True)
+    # Decode emitted rows for the sampled cells so validation covers encoding.
     samples = json.loads((OUT / 'sample-origins.json').read_text())
-    all_points = [(r['name'], r['latitude'], r['longitude']) for r in samples['origins']]
-    # Look up actual emitted cell entries instead of regenerating them. This also
-    # exercises table encoding/decoding and missing-cell semantics.
-    wanted = {cell_key(*to_xy(lon,lat)) for _,lat,lon in all_points}
+    wanted = {cell_key(*to_xy(r['longitude'], r['latitude'])) for r in samples['origins']}
+    cache = {}
     for path in table_dir.glob('*.jsonl'):
         for line in path.open():
-            row=json.loads(line); key=tuple(row['cell'])
-            if key in wanted: cache[key]=row
-    results=[]
-    for name,lat,lon in all_points:
-        key=cell_key(*to_xy(lon,lat)); approximate=cache.get(key,{'status':'cell_missing','minutes':{}})
-        exact={}; pairs=[]
-        origin_snap=snap(actor,(lat,lon))
-        for c in usable:
-            if geod.inv(lon,lat,c['destination']['longitude'],c['destination']['latitude'])[2] > CANDIDATE_METRES:
-                continue
-            ref = reference(actor,(lat,lon),c) if origin_snap['status']=='snapped' else {'status':'origin_snap_failed'}
-            seconds=ref.get('seconds'); cid=c['course_id']
-            status='within_90' if seconds is not None and seconds<=LIMIT_SECONDS else 'over_90' if seconds is not None else ref['status']
-            pair={'course_id':cid,'reference_status':status,'reference':ref,'table_minutes':approximate['minutes'].get(cid)}
-            if status=='within_90':
-                exact[cid]=seconds
-                if pair['table_minutes'] is not None:
-                    pair['absolute_error_minutes']=abs(pair['table_minutes']-seconds/60)
+            row = json.loads(line); key = tuple(row['cell'])
+            if key in wanted: cache[key] = row
+    accuracy_started = time.monotonic()
+    results = []
+    targets = [(c['destination']['latitude'], c['destination']['longitude']) for c in usable]
+    for origin, seconds, failure in origin_matrices(actor, samples['origins'], targets):
+        name, lat, lon = origin['name'], origin['latitude'], origin['longitude']
+        key = cell_key(*to_xy(lon, lat))
+        approximate = cache.get(key, {'status':'cell_missing','minutes':{}})
+        origin_snap = snap(actor, (lat, lon))
+        exact = {}; pairs = []
+        for course, duration in zip(usable, seconds):
+            cid = course['course_id']
+            status = ('within_90' if duration <= LIMIT_SECONDS else 'over_90') if duration is not None else (
+                'origin_snap_failed' if origin_snap['status'] == 'snap_failed' else 'matrix_error' if failure else 'matrix_null')
+            pair = {'course_id':cid, 'reference_status':status, 'table_minutes':approximate['minutes'].get(cid),
+                    'reference_seconds':duration}
+            if status == 'within_90':
+                exact[cid] = duration
+                if pair['table_minutes'] is not None: pair['absolute_error_minutes'] = abs(pair['table_minutes'] - duration/60)
             pairs.append(pair)
-        results.append({'name':name,'latitude':lat,'longitude':lon,'cell':key,
-            'origin_snap':origin_snap,'table_status':approximate['status'], 'pairs':pairs,
-            'snapped_course_records':len(usable),'geodesically_pruned_course_records':len(usable)-len(pairs),
-            'exact_nearest10':nearest10(exact),'table_nearest10':nearest10(approximate['minutes'])})
-        write_json(OUT / 'accuracy-origins.json', {'seed':SEED,'distribution':'100 uniform-area EPSG:5070 points inside pinned Illinois polygon, then 12 separate synthetic city/rural/border cases','origins':results})
-    sizes={p.name:gzip_file(p) for p in sorted(table_dir.glob('*.jsonl'))}
-    write_json(OUT / 'table-sizes.json',{'areas':sizes,'total_raw_bytes':sum(v['raw_bytes'] for v in sizes.values()),'total_gzip_bytes':sum(v['gzip_bytes'] for v in sizes.values())})
-    write_json(OUT / 'accuracy.json',{'random100':accuracy_summary(results[:100]),'representative12':accuracy_summary(results[100:])})
+        results.append({**origin, 'cell':key, 'origin_snap':origin_snap,
+            'table_status':approximate['status'], 'pairs':pairs, 'matrix_failure':failure,
+            'exact_nearest10':nearest10(exact), 'table_nearest10':nearest10(approximate['minutes'])})
+        print(f'Accuracy matrix calls: {len(results)}/{len(samples["origins"])} origin={name} failure={failure}', flush=True)
+    sizes = {p.name:gzip_file(p) for p in sorted(table_dir.glob('*.jsonl'))}
+    write_json(OUT / 'table-sizes.json', {'areas':sizes,'total_raw_bytes':sum(v['raw_bytes'] for v in sizes.values()),
+                                        'total_gzip_bytes':sum(v['gzip_bytes'] for v in sizes.values())})
+    write_json(OUT / 'accuracy-origins.json', {**samples, 'origins':results})
+    accuracy = {'random100':accuracy_summary(results[:100]), 'representative12':accuracy_summary(results[100:]),
+                'matrix_calls':len(results), 'accuracy_seconds':time.monotonic()-accuracy_started,
+                'qualification':'matrix-to-matrix cell discretization/whole-minute encoding accuracy, not independent route realism; TimeDistanceMatrix does not enforce destination-only/no-thru like CostMatrix'}
+    write_json(OUT / 'accuracy.json', accuracy)
+    print('Accuracy complete: ' + json.dumps(accuracy), flush=True)
+    print('Table sizes: ' + (OUT / 'table-sizes.json').read_text(), flush=True)
 
 
 if __name__ == '__main__':
