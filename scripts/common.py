@@ -36,7 +36,8 @@ def download(url, path, expected=None, algorithm='sha256', expected_bytes=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     h = hashlib.new(algorithm)
     size = 0
-    with urllib.request.urlopen(url, timeout=120) as response, path.open('wb') as target:
+    temporary=path.with_name(path.name+'.part')
+    with urllib.request.urlopen(url, timeout=120) as response, temporary.open('wb') as target:
         while chunk := response.read(1024 * 1024):
             target.write(chunk)
             h.update(chunk)
@@ -45,8 +46,10 @@ def download(url, path, expected=None, algorithm='sha256', expected_bytes=None):
         raise ValueError(f'Input size mismatch for {url}')
     if expected is not None and h.hexdigest() != expected:
         raise ValueError(f'Input checksum mismatch for {url}')
+    temporary.replace(path)
+    with path.open('rb') as source:sha256=hashlib.file_digest(source,'sha256').hexdigest()
     return {'url': url, 'bytes': size, algorithm: h.hexdigest(),
-            'sha256': hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()}
+            'sha256':sha256}
 
 
 def whole_minutes(seconds):

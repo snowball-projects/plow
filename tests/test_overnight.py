@@ -134,7 +134,7 @@ class Overnight(unittest.TestCase):
                     (directory/f'search{search}').mkdir(exist_ok=True)
                     (directory/f'search{search}/hybrid-accuracy.json').write_text(json.dumps(accuracy))
                 return True
-            with patch.object(overnight,'OUT',out),patch.object(overnight.pilot,'stop_containers'), \
+            with patch.object(overnight,'OUT',out),patch.object(overnight.pilot,'stop_containers'),patch.object(overnight.shutil,'rmtree'), \
                  patch.object(experiments,'stage',side_effect=stage),patch.object(experiments,'swap',side_effect=lambda enabled:setattr(experiments,'mode',enabled)):
                 experiments.run()
             self.assertEqual(sum(s=='illinois' and p=='extract' for s,p,*_ in calls),1)
@@ -145,3 +145,23 @@ class Overnight(unittest.TestCase):
             self.assertLess(first_hybrid,texas);self.assertLess(texas,finer)
             self.assertEqual(len(report['variants']),10)
             self.assertTrue(all(row['status']=='complete' for row in report['variants']))
+
+    def test_failed_download_is_not_reused_as_shared_input(self):
+        import io
+        from common import download
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'index.json'
+            with patch('urllib.request.urlopen',return_value=io.BytesIO(b'bad')):
+                with self.assertRaisesRegex(ValueError,'checksum mismatch'):download('https://example.invalid',path,'0'*64)
+            self.assertFalse(path.exists())
+            with patch('urllib.request.urlopen',return_value=io.BytesIO(b'{}')):
+                download('https://example.invalid',path)
+            self.assertEqual(path.read_bytes(),b'{}')
+
+    def test_empty_course_cache_cannot_make_a_zero_work_fit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            out=Path(temporary);(out/'course-snaps.json').write_text('[]')
+            client=Mock()
+            with patch.object(routing,'OUT',out):
+                with self.assertRaisesRegex(RuntimeError,'No snapped course'):routing.courses_for(client)
+            client.nearest.assert_not_called()

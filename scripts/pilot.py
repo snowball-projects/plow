@@ -144,7 +144,7 @@ def run_stage(name,report,cg,started,command=None,context=None):
             code=proc.poll()
             if code is not None:
                 stage['returncode']=code;stage['oom_kills']=events(cg).get('oom_kill',0)-oom_before
-                if code and stage['oom_kills']>0:raise CapacityStop(f'{name}: actual OOM at enforced 13 GiB RAM limit','oom')
+                if stage['oom_kills']>0:raise CapacityStop(f'{name}: actual OOM at enforced 13 GiB RAM limit','oom')
                 if code:raise RuntimeError(f'{name} failed with exit {code}; inspect logs')
                 stage['status']='complete';break
             time.sleep(2)

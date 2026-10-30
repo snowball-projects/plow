@@ -69,7 +69,10 @@ def accuracy_summary(rows):
 
 def courses_for(client):
     path=OUT/'course-snaps.json'
-    if path.exists():return json.loads(path.read_text())
+    if path.exists():
+        saved=json.loads(path.read_text())
+        if not saved:raise RuntimeError('No snapped course destinations')
+        return saved
     courses=json.loads((OUT/'courses.json').read_text());usable=[]
     for course in courses:
         target=course['destination']
@@ -152,7 +155,7 @@ def build_table():
 
 
 def create_reference():
-    client,_=start_server();usable=courses_for(client)
+    client,start_seconds=start_server();usable=courses_for(client)
     samples=json.loads((OUT/'sample-origins.json').read_text());results=[];began=time.monotonic()
     for origin in samples['origins']:
         point=(origin['longitude'],origin['latitude']);snap=client.nearest(point);exact={};pairs=[]
@@ -167,7 +170,7 @@ def create_reference():
         print(f'Fixed reference origins: {len(results)}/100',flush=True)
     write_json(OUT/'reference-origins.json',{**samples,'origins':results})
     offsets=[r['origin_snap']['distance_metres'] for r in results if r['origin_snap']['status']=='snapped']
-    write_json(OUT/'reference-summary.json',{**accuracy_summary(results),'reference_seconds':time.monotonic()-began,
+    write_json(OUT/'reference-summary.json',{**accuracy_summary(results),'reference_seconds':time.monotonic()-began,'server_start_seconds':start_seconds,
         'origin_snap_metres_mean':float(np.mean(offsets)) if offsets else None,
         'origin_snap_metres_p95':float(np.percentile(offsets,95)) if offsets else None,
         'qualification':'New fixed interior100, not prior unrestricted Valhalla sample; clipped-state OSRM truth only, cross-border optimal routes can be absent even 50 km inside'})

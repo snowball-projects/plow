@@ -43,7 +43,9 @@ def national_estimate(report,spacing):
         info=report['states'].get(state,{})
         if not source or not table or not table['payload_complete'] or not info.get('baseline_complete'):continue
         stages=[s for s in report['stages'] if s['context'].get('state')==state and s['context'].get('phase') in {'prepare','clip','extract','contract'}]
-        anchors.append({'state':state,'build_rate':sum(s['elapsed_seconds'] for s in stages)/source['input_bytes'],
+        reference=read(OUT/state/'reference-summary.json') or {}
+        startup=max(table.get('server_start_seconds',0),reference.get('server_start_seconds',0))
+        anchors.append({'state':state,'build_rate':(sum(s['elapsed_seconds'] for s in stages)+startup)/source['input_bytes'],
             'snap_rate':table['snap_seconds']/table['cells'],
             'pair_rate':(table['matrix_seconds']+table['encode_seconds'])/max(1,table['requested_pairs'])})
     if len(anchors)!=2:return {'status':'unavailable','reason':'Both state build/table baselines must complete'}
@@ -157,6 +159,8 @@ class Experiments:
 
     def once(self,state,phase,command,**settings):
         if self.stage(state,phase,command,**settings):return True
+        if self.last_kind=='error' and phase in {'prepare','image'}:
+            return self.stage(state,phase,command,**settings)
         if self.last_kind!='oom' or self.retry_used.get(state):return False
         self.retry_used[state]=True
         try:self.swap(True)
@@ -226,6 +230,7 @@ class Experiments:
         pilot.stop_containers()
         if not self.time_exhausted:self.build('texas')
         pilot.stop_containers()
+        shutil.rmtree(ROOT/'work/texas',ignore_errors=True)  # TX metrics/tables remain; unchanged IL build is retained.
         il_info=self.report['states'].get('illinois',{})
         if il_info.get('network_complete'):
             self.swap(il_info.get('mode',False))
