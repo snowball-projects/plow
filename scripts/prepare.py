@@ -58,11 +58,11 @@ def prepare():
         region=projected[r['state']];region_buffer=region.buffer(300000)
         volume=sum(v['bytes']*projected[v['state']].intersection(region_buffer).area/projected[v['state']].area for v in records if v['role']=='region')
         proxies[r['state']]={'volume':volume,'pairs':region.area/4e6*course_counts[r['code']],'courses':course_counts[r['code']],'raw':r['bytes']}
-    baseline=proxies[state];ratios={key:[v[key]/baseline[key] for v in proxies.values()] for key in ['volume','pairs','courses','raw']}
-    write_json(OUT/'estimate-inputs.json',{'buffer_volume_ratio':sum(ratios['volume']),'largest_buffer_ratio':max(ratios['volume']),
-        'pair_ratio':sum(ratios['pairs']),'largest_pair_ratio':max(ratios['pairs']),
-        'course_ratio':sum(ratios['courses']),'largest_course_ratio':max(ratios['courses']),
-        'raw_input_ratio':sum(ratios['raw']),'largest_raw_ratio':max(ratios['raw']),
+    baseline=proxies[state]
+    ratios={name:{key:value/baseline[key] for key,value in values.items()} for name,values in proxies.items()}
+    write_json(OUT/'estimate-inputs.json',{'state_ratios':ratios,
+        'pair_ratio':sum(values['pairs'] for values in ratios.values()),
+        'raw_input_ratio':sum(values['raw'] for values in ratios.values()),
         'qualification':'Metadata-only hypothesis: area-weighted whole-OSM compressed bytes approximate buffered road work; area/4km2 x public-coordinate courses approximate matrix pairs; EPSG distortion, snap/retention fractions, topology and CH nonlinearity unmeasured outside Illinois; no national execution'})
     code=target['properties']['iso3166-2'][0][3:]
     courses=select_courses(catalog,code);write_json(OUT/'courses.json',courses)

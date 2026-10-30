@@ -20,7 +20,13 @@ class CapacityStop(Exception):
 
 def disk_bytes():
     # st_blocks measures actual working storage, including sparse build files.
-    return sum(p.stat().st_blocks*512 for p in ROOT.rglob('*') if p.is_file())
+    size=0
+    for path in ROOT.rglob('*'):
+        try:
+            if path.is_file():size+=path.stat().st_blocks*512
+        except FileNotFoundError:
+            continue  # Build processes may delete temporary files while sampled.
+    return size
 
 
 def workspace_space():
@@ -66,6 +72,13 @@ def verify_memory_bounds(cg):
     return {'memory_max_bytes':maximum,'memory_swap_max_bytes':swap}
 
 
+def national_job_seconds(stages, table_seconds, accuracy_seconds, state_ratios):
+    build=sum(stages.get(name,0) for name in ['prepare','clip','extract','contract'])
+    return {state:build*ratios['volume']+table_seconds*ratios['pairs']+
+            accuracy_seconds*ratios['courses']+stages.get('browser_graph',0)*ratios['raw']+
+            stages.get('image',0) for state,ratios in state_ratios.items()}
+
+
 def metric_table(report):
     def load(name):
         path=OUT/(name+'.json')
@@ -94,9 +107,8 @@ def metric_table(report):
     estimate=load('estimate-inputs')
     if estimate and report['status']=='complete' and grid and acc and browser:
         stages={r['name']:r['elapsed_seconds'] for r in report['stages']}
-        build=sum(stages.get(n,0) for n in ['prepare','clip','extract','contract'])
-        total=build*estimate['buffer_volume_ratio']+grid['table_seconds']*estimate['pair_ratio']+acc['accuracy_seconds']*estimate['course_ratio']+stages.get('browser_graph',0)*estimate['raw_input_ratio']+50*stages.get('image',0)
-        largest=build*estimate['largest_buffer_ratio']+grid['table_seconds']*estimate['largest_pair_ratio']+acc['accuracy_seconds']*estimate['largest_course_ratio']+stages.get('browser_graph',0)*estimate['largest_raw_ratio']+stages.get('image',0)
+        jobs=national_job_seconds(stages,grid['table_seconds'],acc['accuracy_seconds'],estimate['state_ratios'])
+        total=sum(jobs.values());largest=max(jobs.values())
         rows += [['50 state jobs, total runner time',f"{total/3600:.2f} runner-hours (hypothesis)",'build: area-weighted buffered compressed-input proxy; table: cell-area x public-coordinate course pairs; browser: state input bytes'],
             ['Parallel makespan',f"one slot {total/3600:.2f} h; ideal four-slot lower bound {max(total/4,largest)/3600:.2f} h",'template cap 4; available account slots unmeasured, queues/scheduling add delay; no guarantee largest states fit'],
             ['National table gzip scenario',f"{size['total_gzip_bytes']*estimate['pair_ratio']:.0f} bytes",'cell-course-pair size proxy assumes Illinois retained/null fractions and encoding density; high uncertainty'],
