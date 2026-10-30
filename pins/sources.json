@@ -1,0 +1,68 @@
+{
+  "checked_on": "2026-10-29",
+  "catalog": {
+    "manifest_url": "https://snowball-projects.github.io/fairway/data/catalog-release.json",
+    "manifest_sha256": "229943aaae4bf33343b9eee4530d0ccac5f14e204318e0f73696bd60f846a6da",
+    "revision": 1165,
+    "rebuilt_on": "2026-10-29",
+    "release_key": "7d339d2307c4b82329e19f7c16bbee707d64f09076083d1d61da2b46c73b8583",
+    "url": "https://snowball-projects.github.io/fairway/data/browser-details-8327d1c1ad4301e02accf31866531c5b3aa60f659feb9ec9103a3aac71ea36db.json",
+    "bytes": 14783850,
+    "path": "browser-details-8327d1c1ad4301e02accf31866531c5b3aa60f659feb9ec9103a3aac71ea36db.json",
+    "sha256": "8327d1c1ad4301e02accf31866531c5b3aa60f659feb9ec9103a3aac71ea36db"
+  },
+  "modo": {
+    "repository": "https://github.com/adelevski/modo",
+    "commit": "865beb66c039babcc96d7c1511b29bbf95405acf",
+    "builder_sha256": "c91d95d64deac07dacb5f69be06df2e8dcc0ef42f74c071232026b127fae2f26"
+  },
+  "licenses": {
+    "roads": {
+      "name": "ODbL-1.0",
+      "url": "https://opendatacommons.org/licenses/odbl/1-0/",
+      "attribution": "OpenStreetMap contributors",
+      "copyright_url": "https://www.openstreetmap.org/copyright",
+      "checked_on": "2026-10-29"
+    },
+    "code": {
+      "name": "MIT",
+      "url": "LICENSE"
+    }
+  },
+  "runner": {
+    "specs_url": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners",
+    "limits_url": "https://docs.github.com/en/actions/reference/limits",
+    "billing_url": "https://docs.github.com/en/billing/concepts/product-billing/github-actions",
+    "checked_on": "2026-10-29",
+    "label": "ubuntu-24.04",
+    "cpu": 4,
+    "ram_gib": 16,
+    "disk_gib": 14,
+    "max_job_hours": 6
+  },
+  "state_boundaries": {
+    "url": "https://www2.census.gov/geo/tiger/TIGER2025/STATE/tl_2025_us_state.zip",
+    "sha256": "59a220888a8d9be8117c4fcd38f542bd02d81abf0d198c78113595ad540dd957",
+    "bytes": 9956072,
+    "description": "2025 Census TIGER/Line administrative states; extract-provider polygons are not state borders",
+    "checked_on": "2026-10-30"
+  },
+  "origin_sampling_extent": {
+    "url": "https://download.geofabrik.de/index-v1.json",
+    "sha256": "9b1d170b09eee255c0e56925788eb367646397c1ba1882f36b4c5c79133691fc",
+    "description": "Reproduce the fixed overnight Illinois100; every point must also be at least 50 km inside the Census administrative boundary. Never used for roads or grids.",
+    "checked_on": "2026-10-30"
+  },
+  "osrm": {
+    "image": "osrm/osrm-backend@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555",
+    "version": "5.25.0",
+    "profile": "/opt/car.lua",
+    "algorithm": "ch"
+  },
+  "opentimes": {
+    "repository": "https://github.com/dfsnow/opentimes",
+    "commit": "e2f91c0b585de3398c3a77e552d64327a0d6bd84",
+    "license": "MIT; Copyright (c) Dan Snow",
+    "adaptations": "Zero added network buffer; in-state grids/courses; fixed interior Illinois100; no DVC or external cache; optional 16 GiB swap retry on free runner"
+  }
+}
