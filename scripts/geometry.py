@@ -27,7 +27,7 @@ def geojson_feature(geometry):
 
 
 def transforms(state='illinois'):
-    crs={'alaska':3338,'hawaii':3759}.get(state,5070)
+    crs={'alaska':3338,'hawaii':'ESRI:102007'}.get(state,5070)
     return (Transformer.from_crs(4326,crs,always_xy=True).transform,
             Transformer.from_crs(crs,4326,always_xy=True).transform,crs)
 

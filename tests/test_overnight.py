@@ -22,6 +22,12 @@ import common
 
 
 class Overnight(unittest.TestCase):
+    def test_state_grid_projections_use_metres(self):
+        from pyproj import CRS
+        for state in ['illinois','alaska','hawaii']:
+            crs=CRS.from_user_input(transforms(state)[2])
+            self.assertTrue(all(axis.unit_conversion_factor==1 for axis in crs.axis_info),state)
+
     def test_browser_report_keeps_sizes_without_the_file_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:
             out=Path(temporary);(out/'illinois').mkdir()
