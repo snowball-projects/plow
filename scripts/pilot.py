@@ -75,7 +75,7 @@ def verify_memory_bounds(cg):
 def national_job_seconds(stages, table_seconds, accuracy_seconds, state_ratios):
     build=sum(stages.get(name,0) for name in ['prepare','clip','extract','contract'])
     return {state:build*ratios['volume']+table_seconds*ratios['pairs']+
-            accuracy_seconds*ratios['courses']+stages.get('browser_graph',0)*ratios['raw']+
+            accuracy_seconds*ratios['courses']+(stages.get('browser_graph',0)+stages.get('hybrid',0))*ratios['raw']+
             stages.get('image',0) for state,ratios in state_ratios.items()}
 
 
@@ -83,7 +83,7 @@ def metric_table(report):
     def load(name):
         path=OUT/(name+'.json')
         return json.loads(path.read_text()) if path.exists() else None
-    source=load('sources');grid=load('table-manifest');size=load('table-sizes');acc=load('accuracy');browser=load('browser-sizes');coverage=load('course-coverage');network=load('network')
+    source=load('sources');grid=load('table-manifest');size=load('table-sizes');acc=load('accuracy');hybrid=load('hybrid-accuracy');browser=load('browser-sizes');coverage=load('course-coverage');network=load('network')
     missing='unavailable: '+report.get('stop_reason',report.get('error','stage not reached'))
     rows=[['Metric','Measured state pilot','Nationwide planning scenario'],
         ['State / buffered inputs',f"{STATE}; {source['input_bytes']} bytes; {len(source['extracts'])} extracts; polygon coverage {source['source_union_buffer_area_share']:.3%}" if source else missing,'300 km buffered state jobs; overlapping inputs are repeated per job'],
@@ -101,15 +101,19 @@ def metric_table(report):
         ['Tables raw / gzip',f"{size['total_raw_bytes']} / {size['total_gzip_bytes']} bytes" if size else missing,'per-area details printed in logs and output/table-sizes.json'],
         ['Per-area raw / gzip ranges',f"{len(size['areas'])} areas; raw {min(v['raw_bytes'] for v in size['areas'].values())}..{max(v['raw_bytes'] for v in size['areas'].values())}; gzip {min(v['gzip_bytes'] for v in size['areas'].values())}..{max(v['gzip_bytes'] for v in size['areas'].values())}" if size and size['areas'] else missing,'40 km square partitions'],
         ['Accuracy coverage',f"{acc['origin_snap_succeeded']}/{acc['origins']} origins snapped; {acc['origin_snap_failed']} failed; {acc['exact_within_90_pairs']} eligible pairs; {acc['missing_table_for_exact_within90']} missing centre pairs; {acc['matrix_error_pairs']} errors; {acc['matrix_null_pairs']} nulls" if acc else missing,'100 uniform-area random origins; seed 20261029'],
-        ['Within 1 / 2 minutes',f"{acc['within_1_minute_count']}/{acc['exact_within_90_pairs']} ({acc['within_1_minute_share']}); {acc['within_2_minutes_count']}/{acc['exact_within_90_pairs']} ({acc['within_2_minutes_share']})" if acc else missing,'missing centre times fail both thresholds'],
-        ['Nearest-10 same ordered IDs',f"{acc['nearest10_same_order_count']}/{acc['nearest10_eligible_origins']} ({acc['nearest10_same_order_share']}); {100-acc['nearest10_eligible_origins']} ineligible" if acc else missing,'exact seconds then ID vs whole-minute centre time then ID; exact >=10 courses within 90 min'],
+        ['Plain within 1 / 2 minutes',f"{acc['within_1_minute_count']}/{acc['exact_within_90_pairs']} ({acc['within_1_minute_share']}); {acc['within_2_minutes_count']}/{acc['exact_within_90_pairs']} ({acc['within_2_minutes_share']})" if acc else missing,'missing centre times fail both thresholds'],
+        ['Plain nearest-10 same ordered IDs',f"{acc['nearest10_same_order_count']}/{acc['nearest10_eligible_origins']} ({acc['nearest10_same_order_share']}); {100-acc['nearest10_eligible_origins']} ineligible" if acc else missing,'exact seconds then ID vs whole-minute centre time then ID; exact >=10 courses within 90 min'],
+        ['Hybrid within 1 / 2 minutes',f"{hybrid['within_1_minute_count']}/{hybrid['exact_within_90_pairs']} ({hybrid['within_1_minute_share']}); {hybrid['within_2_minutes_count']}/{hybrid['exact_within_90_pairs']} ({hybrid['within_2_minutes_share']})" if hybrid else missing,'same exact OSRM references; missing estimates fail thresholds'],
+        ['Hybrid nearest-10 / missing eligible pairs',f"{hybrid['nearest10_same_order_count']}/{hybrid['nearest10_eligible_origins']} ({hybrid['nearest10_same_order_share']}); {hybrid['missing_table_for_exact_within90']} missing" if hybrid else missing,'same eligible origins/order rule; local plus stored minutes, estimated <=90 min for top-10'],
+        ['Hybrid local runtime / reached cells',f"mean {hybrid['local_runtime_mean_seconds']:.6f} s; p95 {hybrid['local_runtime_p95_seconds']:.6f} s; mean {hybrid['reached_cells_mean']:.2f} centres; shared setup {hybrid['setup_seconds']:.2f} s" if hybrid else missing,'600 s directed searches on exported modo CSR; setup excluded from per-origin times'],
+        ['Hybrid graph matching',f"{hybrid['local_snap_failed_origins']} failed origin snaps; {hybrid['cell_graph_snap_failed']} failed cell snaps; {hybrid['origins_without_reached_cells']} origins reached no cells" if hybrid else missing,'nearest segment <=1 km, partial-edge costs; perpendicular matching offsets excluded; static segment costs differ from OSRM CH'],
         ['Browser full / tiled gzip',f"{browser['full']['gzip_bytes']} / {browser['tiles']['gzip_bytes']} bytes" if browser else missing,'modo format; segment speed profile does not encode OSRM turn costs']]
     estimate=load('estimate-inputs')
     if estimate and report['status']=='complete' and grid and acc and browser:
         stages={r['name']:r['elapsed_seconds'] for r in report['stages']}
         jobs=national_job_seconds(stages,grid['table_seconds'],acc['accuracy_seconds'],estimate['state_ratios'])
         total=sum(jobs.values());largest=max(jobs.values())
-        rows += [['50 state jobs, total runner time',f"{total/3600:.2f} runner-hours (hypothesis)",'build: area-weighted buffered compressed-input proxy; table: cell-area x public-coordinate course pairs; browser: state input bytes'],
+        rows += [['50 state jobs, total runner time',f"{total/3600:.2f} runner-hours (hypothesis)",'build: area-weighted buffered compressed-input proxy; table: cell-area x public-coordinate course pairs; browser/hybrid: state input bytes'],
             ['Parallel makespan',f"one slot {total/3600:.2f} h; ideal four-slot lower bound {max(total/4,largest)/3600:.2f} h",'template cap 4; available account slots unmeasured, queues/scheduling add delay; no guarantee largest states fit'],
             ['National table gzip scenario',f"{size['total_gzip_bytes']*estimate['pair_ratio']:.0f} bytes",'cell-course-pair size proxy assumes Illinois retained/null fractions and encoding density; high uncertainty'],
             ['National browser gzip scenario',f"{browser['tiles']['gzip_bytes']*estimate['raw_input_ratio']:.0f} bytes",'whole-OSM state input-volume proxy, not measured road arcs']]
@@ -197,7 +201,7 @@ def main():
         'cost':'public standard ubuntu-24.04 only; no cache, release, data commit, paid runner, or laptop processing'}
     code=0
     try:
-        for name,command in [('prepare',['prepare.py']),('clip',['osrm_build.py','clip']),('image',['osrm_build.py','image']),('extract',['osrm_build.py','extract']),('contract',['osrm_build.py','contract']),('routing',['routing.py']),('browser_graph',['browser_graph.py'])]:
+        for name,command in [('prepare',['prepare.py']),('clip',['osrm_build.py','clip']),('image',['osrm_build.py','image']),('extract',['osrm_build.py','extract']),('contract',['osrm_build.py','contract']),('routing',['routing.py']),('browser_graph',['browser_graph.py']),('hybrid',['hybrid.py'])]:
             run_stage(name,report,cg,started,command)
         report['status']='complete'
     except CapacityStop as e:

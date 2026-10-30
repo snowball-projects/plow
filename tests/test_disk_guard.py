@@ -22,10 +22,10 @@ class DiskGuard(unittest.TestCase):
     def test_largest_estimated_job_sums_each_states_own_stage_ratios(self):
         ratios={'road_heavy':{'volume':10,'pairs':1,'courses':2,'raw':3},
                 'table_heavy':{'volume':1,'pairs':10,'courses':4,'raw':2}}
-        jobs=pilot.national_job_seconds({'prepare':2,'browser_graph':5,'image':7},3,4,ratios)
-        self.assertEqual(jobs,{'road_heavy':53,'table_heavy':65})
-        self.assertEqual(sum(jobs.values()),118)
-        self.assertEqual(max(jobs.values()),65)
+        jobs=pilot.national_job_seconds({'prepare':2,'browser_graph':5,'hybrid':5,'image':7},3,4,ratios)
+        self.assertEqual(jobs,{'road_heavy':68,'table_heavy':75})
+        self.assertEqual(sum(jobs.values()),143)
+        self.assertEqual(max(jobs.values()),75)
 
     def exercise(self, free, allocated, charged_memory=0):
         with tempfile.TemporaryDirectory() as directory:

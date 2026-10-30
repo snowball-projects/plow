@@ -21,6 +21,10 @@ Accuracy uses 100 uniform-area random Illinois origins, seed `20261029`, compari
 emitted centre minutes with real-point OSRM seconds. Missing table entries fail
 1/2-minute thresholds. Nearest-10 requires identical ordered IDs, sorting by time
 then ID, among origins with ten exact courses within 90 minutes.
+The hybrid searches the exported modo graph for 600 seconds, minimizing local
+seconds plus stored cell minutes over reached centres. Directed partial edges
+are included; perpendicular snap offsets are matching distances, excluded from
+travel time. Both methods share the same exact references and 100 origins.
 
 Only free standard Ubuntu Actions runners: four cores, shared 13 GiB memory limit,
 no swap, 10 GiB free-disk reserve, five-hour processing stop. Logs/summary report
