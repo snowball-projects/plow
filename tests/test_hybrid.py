@@ -70,10 +70,12 @@ class Hybrid(unittest.TestCase):
                 array=np.array(value,dtype=dtype);array.tofile(directory/name)
                 arrays[name]={'url':name,'dtype':dtype,'length':array.size}
             (directory/'manifest.json').write_text(json.dumps({'arrays':arrays}))
+            (directory/'snap_eligible.u8').write_bytes(bytes([1]))
             graph=Graph.load(directory)
             self.assertEqual(graph.forward.tolist(),[1200])
             self.assertTrue(np.isinf(graph.reverse[0]))
             from shapely import get_coordinates
             xy=get_coordinates(graph.lines[0]);middle=(xy[0]+xy[1])/2
+            self.assertIsNotNone(graph.snap([middle],True)[0])
             reached=graph.reached_cells(graph.snap([xy[0]])[0],Targets(graph,graph.snap([middle])))
             self.assertAlmostEqual(reached[0],600)

@@ -8,17 +8,28 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / 'work'
-OUT = ROOT / 'output'
+STATE = os.environ.get('PLOW_STATE', 'illinois')
+WORK = ROOT / 'work' / STATE
+OUT = ROOT / 'output' / STATE
 SEED = 20261029
 LIMIT_SECONDS = 5400
 GRID_METRES = 2000
-STATE = os.environ.get('PLOW_STATE', 'illinois')
+SPACING = int(os.environ.get('PLOW_GRID_METRES', '2000'))
+SNAPPING = os.environ.get('PLOW_SNAPPING', 'stock')
+SEARCH_SECONDS = int(os.environ.get('PLOW_SEARCH_SECONDS', '600'))
+TABLE_OUT = OUT / 'variants' / f'grid{SPACING}-{SNAPPING}'
+SCORE_OUT = TABLE_OUT / f'search{SEARCH_SECONDS}'
 
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False) + '\n')
+
+
+def table_rows(directory):
+    for path in sorted(directory.glob('*.jsonl')):
+        with path.open() as source:
+            for line in source:yield json.loads(line)
 
 
 def download(url, path, expected=None, algorithm='sha256', expected_bytes=None):

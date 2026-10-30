@@ -55,6 +55,6 @@
     "repository": "https://github.com/dfsnow/opentimes",
     "commit": "e2f91c0b585de3398c3a77e552d64327a0d6bd84",
     "license": "MIT; Copyright (c) Dan Snow",
-    "adaptations": "300 km network buffer, in-state grid/course destinations, no DVC/cloud cache/swap"
+    "adaptations": "Zero added network buffer; in-state grids/courses; fixed interior Illinois100; no DVC or external cache; optional 16 GiB swap retry on free runner"
   }
 }

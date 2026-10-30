@@ -19,25 +19,29 @@ def transforms(state='illinois'):
             Transformer.from_crs(crs,4326,always_xy=True).transform,crs)
 
 
-def cell_key(x,y):
-    return math.floor(x/GRID_METRES),math.floor(y/GRID_METRES)
+def cell_key(x,y,spacing=GRID_METRES):
+    return math.floor(x/spacing),math.floor(y/spacing)
 
 
-def centre(key):
-    return (key[0]+.5)*GRID_METRES,(key[1]+.5)*GRID_METRES
+def centre(key,spacing=GRID_METRES):
+    return (key[0]+.5)*spacing,(key[1]+.5)*spacing
 
 
-def cells(polygon):
-    a,b=cell_key(*polygon.bounds[:2]);c,d=cell_key(*polygon.bounds[2:])
+def cells(polygon,spacing=GRID_METRES):
+    a,b=cell_key(*polygon.bounds[:2],spacing);c,d=cell_key(*polygon.bounds[2:],spacing)
     return [(x,y) for x in range(a,c+1) for y in range(b,d+1)
-            if polygon.contains(Point(*centre((x,y))))]
+            if polygon.contains(Point(*centre((x,y),spacing)))]
 
 
-def origins(polygon,to_ll):
-    rng=random.Random(SEED);a,b,c,d=polygon.bounds;result=[]
+def origins(polygon,to_ll,inset_metres=0):
+    sampling=polygon.buffer(-inset_metres) if inset_metres else polygon
+    rng=random.Random(SEED);a,b,c,d=sampling.bounds;result=[];distances=[]
     while len(result)<100:
         x,y=rng.uniform(a,c),rng.uniform(b,d)
-        if polygon.contains(Point(x,y)):
+        if sampling.contains(Point(x,y)):
             lon,lat=to_ll(x,y)
             result.append({'name':f'random-{len(result):03}','latitude':lat,'longitude':lon})
-    return {'seed':SEED,'distribution':'100 uniform-area random origins inside the pinned state polygon; synthetic public coordinates, including water; no private locations','origins':result}
+            distances.append(polygon.boundary.distance(Point(x,y)))
+    return {'seed':SEED,'inset_metres':inset_metres,'minimum_border_distance_metres':min(distances),
+            'distribution':f'100 uniform-area random origins in the pinned state polygon eroded by {inset_metres} metric metres; no resampling after routing failures',
+            'origins':result}

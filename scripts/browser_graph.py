@@ -45,7 +45,7 @@ def build_browser():
     from pyproj import Geod
     from scipy.sparse import csr_array
     geod=Geod(ellps='WGS84')
-    nodes={}; arcs={}
+    nodes={}; arcs={}; snap_eligible={}
     class Roads(osmium.SimpleHandler):
         def way(self, way):
             tags={t.k:t.v for t in way.tags}
@@ -63,6 +63,7 @@ def build_browser():
                     u,v=(a.ref,b.ref) if direction=='forward' else (b.ref,a.ref)
                     seconds=metres/(speed(tags,direction)/3.6)
                     arcs[u,v]=min(arcs.get((u,v),math.inf),seconds)
+                    snap_eligible[u,v]=snap_eligible.get((u,v),False) or tags['highway']!='service'
     # flex_mem stores only referenced locations for this Illinois input. The
     # supervisor still enforces the same total RSS/disk/time budget.
     Roads().apply_file(str(WORK/(STATE+'.osm.pbf')),locations=True,idx='flex_mem')
@@ -81,6 +82,11 @@ def build_browser():
     directory=OUT/'browser';directory.mkdir()
     full,full_asset=module.full_payload(values,directory/'full',source)
     tiled,tile_asset=module.tile_payload(values,directory/'tiles',source,0.05)
+    # Optional matching sidecar: routing arcs/weights and modo manifests stay intact.
+    tails=np.repeat(np.arange(len(values['ids'])),np.diff(values['first_out']))
+    mask=np.fromiter((snap_eligible.get((values['ids'][u],values['ids'][v]),False)
+                     for u,v in zip(tails,values['heads'])),dtype=np.uint8)
+    mask.tofile(directory/'full/snap_eligible.u8')
     totals={}
     for kind in ['full','tiles']:
         sizes={str(p.relative_to(directory/kind)):gzip_file(p) for p in sorted((directory/kind).rglob('*')) if p.is_file()}
@@ -90,6 +96,7 @@ def build_browser():
         'profile':'plow-osm-car-segment-static-v1','speed_fallback_kmh':CAR_CLASSES,
         'limitations':'not OSRM CH-equivalent: raw OSM segments, maxspeed or class fallback; no turn restrictions, intersection penalties, conditional access, ferries, or external-border connections; private/no motorcar access excluded',
         'source_sha256':source,'format':'unmodified pinned modo full_payload and tile_payload functions',
+        'snap_candidates':'snap_eligible.u8 aligns with full CSR arcs; excludes service roads from matching only; car profile already excludes footpaths',
         'full_manifest_sha256':full_asset['sha256'],'tiles_manifest_sha256':tile_asset['sha256']})
 
     print('Browser sizes: ' + (OUT/'browser-sizes.json').read_text(), flush=True)

@@ -1,10 +1,20 @@
-name: State OSRM pilot
+name: Plow overnight experiments
 on:
   workflow_dispatch:
     inputs:
       implementation:
         description: Full reviewed implementation commit SHA
         type: string
+        required: true
+      deadline_utc:
+        description: Stop by this UTC instant
+        type: string
+        default: '2026-10-30T13:00:00Z'
+        required: true
+      processing_seconds:
+        description: Processing budget within the free runner job (default 5h40m)
+        type: string
+        default: '20400'
         required: true
       artifact_budget_bytes:
         description: Verified free shared-storage headroom reserved for one day (0 disables upload)
@@ -18,15 +28,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   pilot:
-    strategy:
-      fail-fast: false
-      max-parallel: 4
-      matrix:
-        state: [illinois]
-    env:
-      PLOW_STATE: ${{ matrix.state }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -50,6 +53,8 @@ jobs:
       - name: Run pilot inside memory limit
         env:
           ARTIFACT_BUDGET_BYTES: ${{ inputs.artifact_budget_bytes }}
+          PLOW_DEADLINE_UTC: ${{ inputs.deadline_utc }}
+          PLOW_PROCESSING_SECONDS: ${{ inputs.processing_seconds }}
         run: |
           test "$(docker info --format '{{.CgroupDriver}}')" = systemd
           mkdir -p output
@@ -58,9 +63,10 @@ jobs:
             --working-directory="$PWD" \
             --setenv=PATH="$PWD/.venv/bin:/usr/bin:/bin" \
             --setenv=ARTIFACT_BUDGET_BYTES="$ARTIFACT_BUDGET_BYTES" \
-            --setenv=PLOW_STATE="$PLOW_STATE" \
+            --setenv=PLOW_DEADLINE_UTC="$PLOW_DEADLINE_UTC" \
+            --setenv=PLOW_PROCESSING_SECONDS="$PLOW_PROCESSING_SECONDS" \
             --setenv=GITHUB_SHA="$(git rev-parse HEAD)" \
-            /bin/bash -c 'systemctl set-property --runtime plow-pilot.slice MemoryMax=13G MemorySwapMax=0 CPUQuota=400%; exec "$@"' plow "$PWD/.venv/bin/python" scripts/pilot.py
+            /bin/bash -c 'systemctl set-property --runtime plow-pilot.slice MemoryMax=13G MemorySwapMax=0 CPUQuota=400%; exec "$@"' plow "$PWD/.venv/bin/python" scripts/overnight.py
       - name: Report outcome
         if: always()
         run: |
@@ -78,7 +84,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always() && steps.artifact.outputs.upload == 'true'
         with:
-          name: ${{ matrix.state }}-pilot-${{ github.run_id }}
+          name: plow-overnight-${{ github.run_id }}
           path: output/
           retention-days: 1
           if-no-files-found: error

@@ -1,9 +1,11 @@
-"""In-state grid sources to course destinations using OpenTimes-style CH chunks."""
+"""State-only OSRM tables and fixed-reference scoring for overnight variants."""
 import json
 import math
 import subprocess
+import sys
 import time
-from common import ROOT, WORK, OUT, STATE, LIMIT_SECONDS, write_json, retained_minutes, nearest10, gzip_file
+import numpy as np
+from common import ROOT, WORK, OUT, STATE, SPACING, SNAPPING, TABLE_OUT, LIMIT_SECONDS, write_json, retained_minutes, nearest10, gzip_file, table_rows
 from geometry import transforms, cells, centre, cell_key
 from osrm import Client, QueryError
 
@@ -18,8 +20,11 @@ def chunks(values,size):
 def start_server():
     from osrm_build import IMAGE,PARENT
     began=time.monotonic()
+    current=subprocess.run(['docker','inspect','-f','{{.State.Running}} {{index .Config.Labels "plow.state"}}','plow-osrm'],capture_output=True,text=True)
+    if current.returncode==0 and current.stdout.strip()=='true '+STATE:return Client(),0
+    subprocess.run(['docker','rm','-f','plow-osrm'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     subprocess.run(['docker','run','--detach','--name','plow-osrm','--cgroup-parent',PARENT,
-        '-p','127.0.0.1:5000:5000','-v',str(WORK)+':/data:ro',IMAGE,
+        '--label','plow.state='+STATE,'-p','127.0.0.1:5000:5000','-v',str(WORK)+':/data:ro',IMAGE,
         'osrm-routed','--algorithm','ch','--threads','4','--max-table-size','1000','/data/roads.osrm'],check=True)
     client=Client()
     for attempt in range(120):
@@ -62,92 +67,134 @@ def accuracy_summary(rows):
 
 
 
-def route_pilot():
+def courses_for(client):
+    path=OUT/'course-snaps.json'
+    if path.exists():return json.loads(path.read_text())
+    courses=json.loads((OUT/'courses.json').read_text());usable=[]
+    for course in courses:
+        target=course['destination']
+        if target:
+            point=(target['longitude'],target['latitude']);course['snap']=client.nearest(point)
+            if course['snap']['status']=='snapped':usable.append({**course,'point':point,'hint':course['snap']['hint']})
+    coverage={**json.loads((OUT/'catalog-counts.json').read_text()),'snapped_course_records':len(usable),
+              'failed_course_snaps':sum(c.get('snap',{}).get('status')=='snap_failed' for c in courses)}
+    write_json(OUT/'courses.json',courses);write_json(OUT/'course-coverage.json',coverage);write_json(path,usable)
+    print('Course coverage: '+json.dumps(coverage),flush=True)
+    if not usable:raise RuntimeError('No course coordinates snapped within 1000 m')
+    return usable
+
+
+def build_table():
     from shapely.geometry import shape
     from shapely.ops import transform
     to_xy,to_ll,crs=transforms(STATE)
     polygon=transform(to_xy,shape(json.loads((WORK/'state.geojson').read_text())['geometry']))
-    client,start_seconds=start_server();began=time.monotonic()
-    courses=json.loads((OUT/'courses.json').read_text());usable=[]
-    for course in courses:
-        d=course['destination']
-        if d:
-            point=(d['longitude'],d['latitude']);course['snap']=client.nearest(point)
-            if course['snap']['status']=='snapped':usable.append({**course,'point':point,'hint':course['snap']['hint']})
-    coverage={**json.loads((OUT/'catalog-counts.json').read_text()),'snapped_course_records':len(usable),
-              'failed_course_snaps':sum(c.get('snap',{}).get('status')=='snap_failed' for c in courses)}
-    write_json(OUT/'courses.json',courses);write_json(OUT/'course-coverage.json',coverage)
-    print('Course coverage: '+json.dumps(coverage),flush=True)
-    if not usable:raise RuntimeError('No course coordinates snapped within 1000 m')
-    table={};points=[]
-    for key in cells(polygon):
-        point=to_ll(*centre(key));snap=client.nearest(point)
-        table[key]={'cell':key,'status':snap['status'],'minutes':{},'matrix_null_course_ids':[],'matrix_error_course_ids':[]}
-        if snap['status']=='snapped':points.append({'key':key,'point':point,'hint':snap['hint']})
+    client,server_seconds=start_server();began=time.monotonic();usable=courses_for(client)
+    keys=cells(polygon,SPACING);graph_snaps=None;graph=None
+    if SNAPPING=='drivable':
+        from hybrid import Graph
+        graph=Graph.load(OUT/'browser/full');graph_snaps=graph.snap([centre(k,SPACING) for k in keys],True)
+    table={};points=[];snap_distances=[]
+    for index,key in enumerate(keys):
+        point=to_ll(*centre(key,SPACING))
+        if graph_snaps is not None:
+            snap=graph_snaps[index]
+            point=to_ll(*graph.position(snap)) if snap is not None else None
+            offset=None if snap is None else snap[2]
+        else:offset=None
+        match=client.nearest(point) if point is not None else {'status':'snap_failed'}
+        if graph_snaps is None:offset=match.get('distance_metres')
+        table[key]={'cell':key,'status':match['status'],'minutes':{},'matrix_null_course_ids':[],'matrix_error_course_ids':[]}
+        if match['status']=='snapped':
+            points.append({'key':key,'point':point,'hint':match['hint']})
+            snap_distances.append(offset)
+        if (index+1)%10000==0:print(f'Cell snaps {STATE} {SPACING} {SNAPPING}: {index+1}/{len(keys)}',flush=True)
     counts={'cells':len(table),'cell_snap_failed':len(table)-len(points),'matrix_calls':0,'matrix_error_pairs':0,
-            'matrix_null_pairs':0,'requested_pairs':0,'pairs_within90':0,'source_chunk':SOURCE_CHUNK,'destination_chunk':DESTINATION_CHUNK,
-            'crs':crs,'cell_metres':2000,'scope':'cell centres inside state; routes may leave state within buffered graph',
-            'rounding':'raw <=5400 s first; floor(seconds/60+0.5)','snap_policy':'1000 m nearest matching; no fallback_speed'}
+            'matrix_null_pairs':0,'requested_pairs':0,'pairs_within90':0,'cell_metres':SPACING,'snapping':SNAPPING,
+            'crs':crs,'source_chunk':SOURCE_CHUNK,'destination_chunk':DESTINATION_CHUNK,'snap_seconds':time.monotonic()-began,
+            'scope':'Centres strictly inside state polygon; zero road buffer; explicit nulls/errors, no fallback_speed'}
+    matrix_start=time.monotonic()
     for batch in chunks(points,SOURCE_CHUNK):
-        for destinations in chunks(usable,DESTINATION_CHUNK):
-            counts['matrix_calls']+=1;counts['requested_pairs']+=len(batch)*len(destinations)
-            try:rows=client.table(batch,destinations)
+        for targets in chunks(usable,DESTINATION_CHUNK):
+            counts['matrix_calls']+=1;counts['requested_pairs']+=len(batch)*len(targets)
+            try:rows=client.table(batch,targets)
             except QueryError as error:
-                counts['matrix_error_pairs']+=len(batch)*len(destinations)
-                for point in batch:table[point['key']]['matrix_error_course_ids'] += [c['course_id'] for c in destinations]
-                print('Table query error: '+str(error),flush=True)
-                continue
+                counts['matrix_error_pairs']+=len(batch)*len(targets)
+                for point in batch:table[point['key']]['matrix_error_course_ids'] += [c['course_id'] for c in targets]
+                print('Table query error: '+str(error),flush=True);continue
             for point,row in zip(batch,rows):
                 record=table[point['key']]
-                for course,seconds in zip(destinations,row):
+                for course,seconds in zip(targets,row):
                     cid=course['course_id']
                     if seconds is None:
                         counts['matrix_null_pairs']+=1;record['matrix_null_course_ids'].append(cid)
                     elif retained_minutes(seconds) is not None:
                         record['minutes'][cid]=retained_minutes(seconds);counts['pairs_within90']+=1
-        print('Table progress: '+json.dumps(counts),flush=True)
-    directory=OUT/'tables';directory.mkdir();handles={}
+        if counts['matrix_calls']%20==0:print('Table progress: '+json.dumps(counts),flush=True)
+    counts['matrix_seconds']=time.monotonic()-matrix_start;encode_start=time.monotonic()
+    directory=TABLE_OUT/'tables';directory.mkdir(parents=True,exist_ok=True);handles={}
     try:
         for key,record in table.items():
-            area=f'{key[0]//20}_{key[1]//20}'
+            area=f'{key[0]//(40000//SPACING)}_{key[1]//(40000//SPACING)}'
             if area not in handles:handles[area]=(directory/(area+'.jsonl')).open('w')
             handles[area].write(json.dumps(record,separators=(',',':'))+'\n')
     finally:
         for handle in handles.values():handle.close()
     sizes={p.name:gzip_file(p) for p in sorted(directory.glob('*.jsonl'))}
-    write_json(OUT/'table-sizes.json',{'areas':sizes,'total_raw_bytes':sum(v['raw_bytes'] for v in sizes.values()),'total_gzip_bytes':sum(v['gzip_bytes'] for v in sizes.values())})
-    counts['table_seconds']=time.monotonic()-began;counts['server_start_seconds']=start_seconds
-    write_json(OUT/'table-manifest.json',counts);print('Table complete: '+json.dumps(counts),flush=True)
-    samples=json.loads((OUT/'sample-origins.json').read_text());wanted={cell_key(*to_xy(o['longitude'],o['latitude'])) for o in samples['origins']};cache={}
-    # Read emitted rows rather than reconstructing centre times during accuracy.
-    for path in directory.glob('*.jsonl'):
-        for line in path.open():
-            record=json.loads(line);key=tuple(record['cell'])
-            if key in wanted:cache[key]=record
-    began=time.monotonic();results=[];calls=0
+    write_json(TABLE_OUT/'table-sizes.json',{'areas':sizes,'total_raw_bytes':sum(v['raw_bytes'] for v in sizes.values()),'total_gzip_bytes':sum(v['gzip_bytes'] for v in sizes.values())})
+    counts.update({'encode_seconds':time.monotonic()-encode_start,'table_seconds':time.monotonic()-began,
+        'server_start_seconds':server_seconds,'payload_complete':counts['matrix_error_pairs']==0,
+        'cell_snap_metres_mean':sum(snap_distances)/len(snap_distances) if snap_distances else None,
+        'cell_snap_metres_p95':float(np.percentile(snap_distances,95)) if snap_distances else None})
+    write_json(TABLE_OUT/'table-manifest.json',counts)
+    print('Table complete: '+json.dumps(counts),flush=True)
+    print('Table sizes: '+(TABLE_OUT/'table-sizes.json').read_text(),flush=True)
+
+
+def create_reference():
+    client,_=start_server();usable=courses_for(client)
+    samples=json.loads((OUT/'sample-origins.json').read_text());results=[];began=time.monotonic()
     for origin in samples['origins']:
-        point=(origin['longitude'],origin['latitude']);snap=client.nearest(point);key=cell_key(*to_xy(*point))
-        approximate=cache.get(key,{'status':'cell_missing','minutes':{}});exact={};pairs=[]
+        point=(origin['longitude'],origin['latitude']);snap=client.nearest(point);exact={};pairs=[]
         for targets in chunks(usable,DESTINATION_CHUNK):
-            calls+=1
-            try:seconds=client.table([{'point':point,'hint':snap.get('hint','')}],targets)[0];failure=None
-            except QueryError as error:seconds=[None]*len(targets);failure=error.code
-            for course,duration in zip(targets,seconds):
-                cid=course['course_id'];status=('within_90' if duration<=LIMIT_SECONDS else 'over_90') if duration is not None else ('origin_snap_failed' if snap['status']=='snap_failed' else 'matrix_error' if failure else 'matrix_null')
-                pair={'course_id':cid,'reference_status':status,'reference_seconds':duration,'table_minutes':approximate['minutes'].get(cid),'error_code':failure}
-                if status=='within_90':
-                    exact[cid]=duration
-                    if pair['table_minutes'] is not None:pair['absolute_error_minutes']=abs(pair['table_minutes']-duration/60)
-                pairs.append(pair)
-        results.append({**origin,'origin_snap':snap,'cell':key,'table_status':approximate['status'],'pairs':pairs,'exact_nearest10':nearest10(exact),'table_nearest10':nearest10(approximate['minutes'])})
-        print(f'Accuracy origins: {len(results)}/100',flush=True)
-    accuracy={**accuracy_summary(results),'matrix_calls':calls,'accuracy_seconds':time.monotonic()-began,
-              'definition':'OSRM CH point-to-course vs emitted cell-centre whole minutes; discretization/encoding accuracy, not real-world validation'}
-    write_json(OUT/'accuracy-origins.json',{'seed':samples['seed'],'distribution':samples['distribution'],'origins':results})
-    write_json(OUT/'accuracy.json',accuracy);print('Accuracy complete: '+json.dumps(accuracy),flush=True)
-    print('Table sizes: '+(OUT/'table-sizes.json').read_text(),flush=True)
+            try:durations=client.table([{'point':point,'hint':snap.get('hint','')}],targets)[0];failure=None
+            except QueryError as error:durations=[None]*len(targets);failure=error.code
+            for course,duration in zip(targets,durations):
+                status=('within_90' if duration<=LIMIT_SECONDS else 'over_90') if duration is not None else ('origin_snap_failed' if snap['status']=='snap_failed' else 'matrix_error' if failure else 'matrix_null')
+                pairs.append({'course_id':course['course_id'],'reference_status':status,'reference_seconds':duration,'table_minutes':None,'error_code':failure})
+                if status=='within_90':exact[course['course_id']]=duration
+        results.append({**origin,'origin_snap':snap,'pairs':pairs,'exact_nearest10':nearest10(exact),'table_nearest10':[]})
+        print(f'Fixed reference origins: {len(results)}/100',flush=True)
+    write_json(OUT/'reference-origins.json',{**samples,'origins':results})
+    offsets=[r['origin_snap']['distance_metres'] for r in results if r['origin_snap']['status']=='snapped']
+    write_json(OUT/'reference-summary.json',{**accuracy_summary(results),'reference_seconds':time.monotonic()-began,
+        'origin_snap_metres_mean':float(np.mean(offsets)) if offsets else None,
+        'origin_snap_metres_p95':float(np.percentile(offsets,95)) if offsets else None,
+        'qualification':'New fixed interior100, not prior unrestricted Valhalla sample; clipped-state OSRM truth only, cross-border optimal routes can be absent even 50 km inside'})
+    print('Fixed reference complete: '+(OUT/'reference-summary.json').read_text(),flush=True)
+
+
+def score_plain():
+    references=json.loads((OUT/'reference-origins.json').read_text());to_xy,_,_=transforms(STATE)
+    wanted={cell_key(*to_xy(o['longitude'],o['latitude']),SPACING) for o in references['origins']};cache={}
+    for record in table_rows(TABLE_OUT/'tables'):
+        key=tuple(record['cell'])
+        if key in wanted:cache[key]=record
+    results=[]
+    for origin in references['origins']:
+        key=cell_key(*to_xy(origin['longitude'],origin['latitude']),SPACING)
+        approximate=cache.get(key,{'status':'cell_missing','minutes':{}});pairs=[]
+        for original in origin['pairs']:
+            pair={**original,'table_minutes':approximate['minutes'].get(original['course_id'])}
+            if pair['reference_status']=='within_90' and pair['table_minutes'] is not None:
+                pair['absolute_error_minutes']=abs(pair['table_minutes']-pair['reference_seconds']/60)
+            pairs.append(pair)
+        results.append({**origin,'pairs':pairs,'cell':key,'table_status':approximate['status'],
+                        'table_nearest10':nearest10(approximate['minutes'])})
+    summary={**accuracy_summary(results),'cell_metres':SPACING,'snapping':SNAPPING,'reference':'unchanged original real-point OSRM references for all 100 interior origins'}
+    write_json(TABLE_OUT/'accuracy-origins.json',{'seed':references['seed'],'origins':results})
+    write_json(TABLE_OUT/'accuracy.json',summary);print('Plain accuracy: '+json.dumps(summary),flush=True)
 
 
 if __name__=='__main__':
-    try:route_pilot()
-    finally:subprocess.run(['docker','rm','-f','plow-osrm'],check=False)
+    {'table':build_table,'reference':create_reference,'score':score_plain}[sys.argv[1]]()

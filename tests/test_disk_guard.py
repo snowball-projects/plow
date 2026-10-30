@@ -19,24 +19,16 @@ class DiskGuard(unittest.TestCase):
         with patch.object(pilot,'ROOT',root):
             self.assertEqual(pilot.disk_bytes(),3*512)
 
-    def test_largest_estimated_job_sums_each_states_own_stage_ratios(self):
-        ratios={'road_heavy':{'volume':10,'pairs':1,'courses':2,'raw':3},
-                'table_heavy':{'volume':1,'pairs':10,'courses':4,'raw':2}}
-        jobs=pilot.national_job_seconds({'prepare':2,'browser_graph':5,'hybrid':5,'image':7},3,4,ratios)
-        self.assertEqual(jobs,{'road_heavy':68,'table_heavy':75})
-        self.assertEqual(sum(jobs.values()),143)
-        self.assertEqual(max(jobs.values()),75)
-
-    def exercise(self, free, allocated, charged_memory=0):
+    def exercise(self, free, allocated, charged_memory=0, process_code=0, existing_oom=0):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             work, out, cg = (root / name for name in ['work', 'output', 'cg'])
             for path in [work, out, cg]: path.mkdir()
             for name in ['memory.current', 'memory.peak']: (cg / name).write_text(str(charged_memory))
             (cg / 'memory.stat').write_text(f'anon {pilot.GIB}\nfile {max(0,charged_memory-pilot.GIB)}\n')
-            (cg / 'memory.events').write_text('oom_kill 0\n')
+            (cg / 'memory.events').write_text(f'oom_kill {existing_oom}\n')
             process = Mock(pid=123)
-            process.poll.return_value = 0
+            process.poll.return_value = process_code
             space = {'available_bytes':free, 'free_bytes':free,
                      'total_bytes':100*pilot.GIB, 'available_inodes':1_000_000,
                      'device_id':'8:1'}
@@ -49,6 +41,10 @@ class DiskGuard(unittest.TestCase):
                  patch.object(pilot.subprocess, 'Popen', return_value=process):
                 pilot.run_stage('fixture', report, cg, pilot.time.monotonic())
             return report
+
+    def test_old_oom_event_does_not_reclassify_a_later_tool_error(self):
+        with self.assertRaisesRegex(RuntimeError,'exit 2'):
+            self.exercise(73*pilot.GIB,pilot.GIB,process_code=2,existing_oom=1)
 
     def test_working_set_above_old_cap_continues_with_actual_free_space(self):
         report = self.exercise(free=73*pilot.GIB, allocated=20*pilot.GIB)
