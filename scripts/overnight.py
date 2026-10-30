@@ -15,6 +15,10 @@ OUT=ROOT/'output'
 GIB=1024**3
 
 
+def include_texas():
+    return os.environ.get('PLOW_INCLUDE_TEXAS','true').lower()=='true'
+
+
 def read(path):
     return json.loads(path.read_text()) if path.exists() else None
 
@@ -248,7 +252,7 @@ class Experiments:
         self.build('illinois');self.evaluate(2000,600)
         self.report['states']['illinois']['mode']=self.mode
         pilot.stop_containers()
-        if not self.time_exhausted:self.build('texas')
+        if not self.time_exhausted and include_texas():self.build('texas')
         pilot.stop_containers()
         shutil.rmtree(ROOT/'work/texas',ignore_errors=True)  # TX metrics/tables remain; unchanged IL build is retained.
         il_info=self.report['states'].get('illinois',{})
@@ -279,7 +283,7 @@ def main():
         'peak_filesystem_used_bytes':initial['space']['total_bytes']-initial['space']['free_bytes'],
         'limits':{'cpu_quota_cores':4,'ram_bytes':13*GIB,'optional_swap_bytes':16*GIB,'processing_seconds':pilot.TIME_LIMIT,'deadline_utc':value},
         'measurement':'Cgroup RAM includes cache; swap measured separately. Process RSS/VmSwap sum is sampled every 2s over cgroup PIDs; shared RSS can be counted twice. Kernel peak used per stage when reset supported, otherwise sampled stage peak.',
-        'scope':'Illinois/Texas only, buffer 0, one free standard public Ubuntu job, fixed 100 new interior Illinois origins; no nationwide execution'}
+        'scope':('Illinois/Texas' if include_texas() else 'Illinois retry only')+'; buffer 0, one free standard public Ubuntu job, fixed 100 interior Illinois origins; no nationwide execution'}
     print('Initial filesystem: '+json.dumps(initial),flush=True)
     code=0
     try:
@@ -289,7 +293,7 @@ def main():
         report['host_cpu_count']=os.cpu_count()
         if memory['MemTotal']<15*GIB:raise RuntimeError('Expected the free standard 16 GB runner')
         Experiments(report,cg,started).run()
-        report['status']='complete' if report['variants'] and all(v['status']=='complete' for v in report['variants']) and len(report['states'])==2 and all(s.get('baseline_complete') for s in report['states'].values()) else 'partial'
+        report['status']='complete' if report['variants'] and all(v['status']=='complete' for v in report['variants']) and len(report['states'])==(2 if include_texas() else 1) and all(s.get('baseline_complete') for s in report['states'].values()) else 'partial'
     except Exception as error:report['status']='error';report['error']=f'{type(error).__name__}: {error}';code=1
     finally:
         pilot.stop_containers();report['elapsed_seconds']=time.monotonic()-started

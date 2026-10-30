@@ -1,5 +1,6 @@
 """Small local OSRM client. Directed indices; never request fallback_speed."""
 import math
+import time
 import requests
 
 
@@ -14,7 +15,14 @@ class Client:
         self.session=session or requests.Session()
 
     def request(self,path,params):
-        response=self.session.get('http://127.0.0.1:5000/'+path,params=params,timeout=60)
+        for attempt in range(3):
+            try:
+                response=self.session.get('http://127.0.0.1:5000/'+path,params=params,timeout=60)
+                break
+            except (requests.ConnectionError,requests.Timeout):
+                if attempt==2:raise
+                print(f'OSRM local HTTP transport retry {attempt+1}/2',flush=True)
+                time.sleep(.2*(attempt+1))
         data=response.json()
         if data.get('code')!='Ok':raise QueryError(data.get('code','HTTP'+str(response.status_code)),data.get('message',''))
         return data
