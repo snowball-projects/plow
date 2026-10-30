@@ -21,6 +21,10 @@ on:
         type: string
         default: '0'
         required: true
+      include_texas:
+        description: Include Texas fit test (false for a focused Illinois retry)
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -55,6 +59,7 @@ jobs:
           ARTIFACT_BUDGET_BYTES: ${{ inputs.artifact_budget_bytes }}
           PLOW_DEADLINE_UTC: ${{ inputs.deadline_utc }}
           PLOW_PROCESSING_SECONDS: ${{ inputs.processing_seconds }}
+          PLOW_INCLUDE_TEXAS: ${{ inputs.include_texas }}
         run: |
           test "$(docker info --format '{{.CgroupDriver}}')" = systemd
           mkdir -p output
@@ -65,6 +70,7 @@ jobs:
             --setenv=ARTIFACT_BUDGET_BYTES="$ARTIFACT_BUDGET_BYTES" \
             --setenv=PLOW_DEADLINE_UTC="$PLOW_DEADLINE_UTC" \
             --setenv=PLOW_PROCESSING_SECONDS="$PLOW_PROCESSING_SECONDS" \
+            --setenv=PLOW_INCLUDE_TEXAS="$PLOW_INCLUDE_TEXAS" \
             --setenv=GITHUB_SHA="$(git rev-parse HEAD)" \
             /bin/bash -c 'systemctl set-property --runtime plow-pilot.slice MemoryMax=13G MemorySwapMax=0 CPUQuota=400%; exec "$@"' plow "$PWD/.venv/bin/python" scripts/overnight.py
       - name: Report outcome
