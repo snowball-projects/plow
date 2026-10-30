@@ -1,22 +1,73 @@
 """Fixed references, candidate-only snapping, and bounded overnight selection."""
 import json
+import io
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import Mock, patch
 
 import numpy as np
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, shape, mapping
+from shapely.ops import transform
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from geometry import origins, cells, centre, transforms, cell_key
 from hybrid import Graph, Targets
 import routing
 import overnight
+import prepare
+import common
 
 
 class Overnight(unittest.TestCase):
+    def test_browser_report_keeps_sizes_without_the_file_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            out=Path(temporary);(out/'illinois').mkdir()
+            sizes={'vertices':10,'arcs':20,'tile_count':3,'full':{'raw_bytes':100,'gzip_bytes':50,'files':{'a':{}}},
+                   'tiles':{'raw_bytes':120,'gzip_bytes':60,'files':{'b':{}}}}
+            (out/'illinois/browser-sizes.json').write_text(json.dumps(sizes))
+            report={'states':{'illinois':{}},'stages':[],'variants':[]}
+            with patch.object(overnight,'OUT',out):overnight.attach_resources(report)
+            self.assertEqual(report['states']['illinois']['browser_sizes'],{'vertices':10,'arcs':20,'tile_count':3,
+                'full_payload':{'raw_bytes':100,'gzip_bytes':50},'tiles_payload':{'raw_bytes':120,'gzip_bytes':60}})
+
+    def test_administrative_boundary_controls_clipping_and_interior_sample(self):
+        import shapefile
+        administrative=Polygon([(-91,37),(-91,42),(-87,42),(-87,37),(-91,37)])
+        extract_extent=Polygon([(-95,35),(-95,45),(-80,45),(-80,35),(-95,35)])
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);shared=root/'work/shared';shared.mkdir(parents=True)
+            base=root/'states'
+            with shapefile.Writer(str(base),shapeType=shapefile.POLYGON) as writer:
+                writer.field('STUSPS','C',size=2);writer.poly([list(administrative.exterior.coords)]);writer.record('IL')
+            from pyproj import CRS
+            base.with_suffix('.prj').write_text(CRS.from_epsg(4326).to_wkt())
+            with zipfile.ZipFile(shared/'state-boundaries.zip','w') as archive:
+                for suffix in ['shp','shx','dbf','prj']:archive.write(base.with_suffix('.'+suffix),'states.'+suffix)
+            (shared/'regions.json').write_text(json.dumps({'features':[{'properties':{'id':'us/illinois'},'geometry':mapping(extract_extent)}]}))
+            (shared/'catalog.json').write_text(json.dumps({'courses':[],'destinations':[]}))
+            (shared/'modo_build.py').write_text('# fixture')
+            (root/'pins').mkdir()
+            pins={key:{} for key in ['state_boundaries','origin_sampling_extent','catalog','licenses','osrm','opentimes','modo']}
+            (root/'pins/sources.json').write_text(json.dumps(pins))
+            (root/'pins/extracts.json').write_text(json.dumps([{'role':'state','state':'illinois','code':'IL','bytes':1,
+                'url':'https://example.invalid/illinois.osm.pbf','md5':'0'*32}]))
+            work=root/'work/illinois';out=root/'output/illinois'
+            with patch.multiple(prepare,ROOT=root,WORK=work,OUT=out),patch.object(common,'STATE','illinois'), \
+                 patch.object(prepare,'download'),patch('sys.stdout',new_callable=io.StringIO):prepare.prepare()
+            actual=shape(json.loads((work/'state.geojson').read_text())['geometry'])
+            self.assertTrue(actual.equals(administrative))
+            projected=transform(transforms()[0],administrative)
+            samples=json.loads((out/'sample-origins.json').read_text())['origins']
+            self.assertEqual(len(samples),100)
+            for origin in samples:
+                point=Point(*transforms()[0](origin['longitude'],origin['latitude']))
+                self.assertTrue(projected.contains(point))
+                self.assertGreaterEqual(projected.boundary.distance(point),50000)
+            self.assertEqual(json.loads((out/'sources.json').read_text())['state_boundaries'],pins['state_boundaries'])
+
     def test_interior_origins_are_deterministic_and_fifty_km_inside(self):
         polygon=Polygon([(0,0),(300000,0),(300000,300000),(0,300000)])
         first=origins(polygon,lambda x,y:(x,y),50000)

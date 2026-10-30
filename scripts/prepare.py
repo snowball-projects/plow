@@ -30,7 +30,7 @@ def select_courses(catalog, state_code='IL'):
 def prepare():
     from shapely.geometry import shape
     from shapely.ops import transform
-    from geometry import transforms, origins, geojson_feature
+    from geometry import transforms, origins, geojson_feature, state_boundaries
     from common import STATE
     pins=json.loads((ROOT/'pins/sources.json').read_text())
     records=json.loads((ROOT/'pins/extracts.json').read_text())
@@ -39,18 +39,20 @@ def prepare():
         path=shared/name
         if not path.exists():download(spec['url'],path,spec['sha256'],expected_bytes=spec.get('bytes'))
         return path
-    features=json.loads(input_file(pins['geofabrik_index'],'regions.json').read_text())['features']
-    regions={f['properties']['id'].removeprefix('us/'):f for f in features
-             if f['properties']['id'].startswith('us/') and f['properties']['id'].count('/')==1}
-    target=regions[STATE];to_xy,to_ll,crs=transforms(STATE)
-    polygon=transform(to_xy,shape(target['geometry']))
-    write_json(WORK/'state.geojson',geojson_feature(target['geometry']))
+    regions=state_boundaries(input_file(pins['state_boundaries'],'state-boundaries.zip'))
+    row=next(r for r in records if r['role']=='state' and r['state']==STATE)
+    target=regions[row['code']];to_xy,to_ll,crs=transforms(STATE)
+    polygon=transform(to_xy,shape(target))
+    write_json(WORK/'state.geojson',geojson_feature(target))
     if STATE=='illinois':
-        sample=origins(polygon,to_ll,50_000)
+        # Reproduce the original overnight cohort; all 100 also pass the full
+        # administrative-border test. This extent never controls roads or cells.
+        features=json.loads(input_file(pins['origin_sampling_extent'],'regions.json').read_text())['features']
+        extent=next(f['geometry'] for f in features if f['properties']['id']=='us/illinois')
+        sample=origins(transform(to_xy,shape(extent)),to_ll,50_000,polygon)
         write_json(OUT/'sample-origins.json',sample)
         print('Frozen interior origins: '+json.dumps(sample),flush=True)
     catalog=json.loads(input_file(pins['catalog'],'catalog.json').read_text())
-    row=next(r for r in records if r['role']=='state' and r['state']==STATE)
     courses=select_courses(catalog,row['code']);write_json(OUT/'courses.json',courses)
     counts={'state':STATE,'course_records':len(courses),
         'with_published_coordinates':sum(c['destination'] is not None for c in courses),
@@ -60,13 +62,14 @@ def prepare():
     national=[]
     for record in records:
         if record['role']!='state' or record['code'] in {'DC','PR','VI'}:continue
-        area=transform(to_xy,shape(regions[record['state']]['geometry'])).area
+        area=transform(transforms(record['state'])[0],shape(regions[record['code']])).area
         national.append({'state':record['state'],'area_m2':area,'input_bytes':record['bytes'],
             'coordinate_courses':len([c for c in select_courses(catalog,record['code']) if c['destination']])})
     write_json(OUT/'national-inputs.json',national)
     source={'state':STATE,'state_code':row['code'],'grid_crs':crs,'buffer_metres':0,
         'extracts':[row],'input_bytes':row['bytes'],'area_m2':polygon.area,
-        'scope':'State polygon only, complete ways; no added road buffer. No-buffer routes are not full-network truth.',
+        'scope':'Census administrative state polygon only, complete ways; no added road buffer. No-buffer routes are not full-network truth.',
+        'state_boundaries':pins['state_boundaries'],
         'licenses':pins['licenses'],'catalog':pins['catalog'],'osrm':pins['osrm'],'opentimes':pins['opentimes']}
     write_json(OUT/'sources.json',source);print('Inputs: '+json.dumps(source),flush=True)
     download(row['url'],WORK/'source.osm.pbf',row['md5'],'md5',row['bytes'])

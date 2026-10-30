@@ -77,6 +77,11 @@ def attach_resources(report):
         info['course_coverage']=read(OUT/state/'course-coverage.json') or read(OUT/state/'catalog-counts.json')
         info['table']=read(OUT/state/'variants/grid2000-stock/table-manifest.json')
         info['table_sizes']=read(OUT/state/'variants/grid2000-stock/table-sizes.json')
+        browser=read(OUT/state/'browser-sizes.json')
+        if browser:
+            info['browser_sizes']={key:browser[key] for key in ['vertices','arcs','tile_count']}
+            for kind in ['full','tiles']:
+                info['browser_sizes'][kind+'_payload']={key:browser[kind][key] for key in ['raw_bytes','gzip_bytes']}
     for row in report['variants']:
         row['resources']=aggregate([s for s in report['stages'] if s['context'].get('variant_id')==row['id']])
 

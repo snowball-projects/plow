@@ -10,9 +10,11 @@ CH contraction. Dan Snow's notice is retained in LICENSE. Inputs and serializers
 are pinned; names, published coordinates, qualifications and missing courses stay intact.
 
 Dispatch **Plow overnight experiments** from main with the exact PR SHA. One free
-standard Ubuntu job builds Illinois and Texas with **zero added road buffer**.
-Illinois's new fixed 100 origins are uniformly sampled at least 50 km inside its
-pinned polygon in EPSG:5070, seed `20261029`; failed origins are never replaced.
+standard Ubuntu job builds Illinois and Texas with **zero added road buffer**,
+clipped to pinned Census TIGER/Line administrative boundaries, not extract extents.
+Illinois's fixed 100 origins retain seed `20261029` and the original sampling
+extent; all are validated at least 50 km inside its Census border in EPSG:5070.
+Failed origins are never replaced.
 This sample differs from the earlier unrestricted sample. Clipped-state
 OSRM references are fixed across variants; even interior routes can lose border
 shortcuts, so this measures approximation on that graph, not full-network truth.

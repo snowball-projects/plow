@@ -40,9 +40,17 @@
     "disk_gib": 14,
     "max_job_hours": 6
   },
-  "geofabrik_index": {
+  "state_boundaries": {
+    "url": "https://www2.census.gov/geo/tiger/TIGER2025/STATE/tl_2025_us_state.zip",
+    "sha256": "59a220888a8d9be8117c4fcd38f542bd02d81abf0d198c78113595ad540dd957",
+    "bytes": 9956072,
+    "description": "2025 Census TIGER/Line administrative states; extract-provider polygons are not state borders",
+    "checked_on": "2026-10-30"
+  },
+  "origin_sampling_extent": {
     "url": "https://download.geofabrik.de/index-v1.json",
     "sha256": "9b1d170b09eee255c0e56925788eb367646397c1ba1882f36b4c5c79133691fc",
+    "description": "Reproduce the fixed overnight Illinois100; every point must also be at least 50 km inside the Census administrative boundary. Never used for roads or grids.",
     "checked_on": "2026-10-30"
   },
   "osrm": {

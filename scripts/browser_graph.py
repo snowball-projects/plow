@@ -92,14 +92,15 @@ def build_browser():
         sizes={str(p.relative_to(directory/kind)):gzip_file(p) for p in sorted((directory/kind).rglob('*')) if p.is_file()}
         totals[kind]={'files':sizes,'raw_bytes':sum(x['raw_bytes'] for x in sizes.values()),
                       'gzip_bytes':sum(x['gzip_bytes'] for x in sizes.values())}
-    write_json(OUT/'browser-sizes.json',{'vertices':len(ids),'arcs':len(weights),'tiles':len(tiled['tiles']),**totals,
+    write_json(OUT/'browser-sizes.json',{'vertices':len(ids),'arcs':len(weights),'tile_count':len(tiled['tiles']),**totals,
         'profile':'plow-osm-car-segment-static-v1','speed_fallback_kmh':CAR_CLASSES,
         'limitations':'not OSRM CH-equivalent: raw OSM segments, maxspeed or class fallback; no turn restrictions, intersection penalties, conditional access, ferries, or external-border connections; private/no motorcar access excluded',
         'source_sha256':source,'format':'unmodified pinned modo full_payload and tile_payload functions',
         'snap_candidates':'snap_eligible.u8 aligns with full CSR arcs; excludes service roads from matching only; car profile already excludes footpaths',
         'full_manifest_sha256':full_asset['sha256'],'tiles_manifest_sha256':tile_asset['sha256']})
 
-    print('Browser sizes: ' + (OUT/'browser-sizes.json').read_text(), flush=True)
+    print('Browser sizes: '+json.dumps({'vertices':len(ids),'arcs':len(weights),'tile_count':len(tiled['tiles']),
+        **{kind:{key:totals[kind][key] for key in ['raw_bytes','gzip_bytes']} for kind in ['full','tiles']}}),flush=True)
 
 
 if __name__=='__main__':
